@@ -71,3 +71,17 @@ export function rampFromSlope(a: V2, b: V2): { x: number; y: number; w: number; 
   const tri: V2[] = [lo, [hi[0], lo[1]], hi];
   return { x: (tri[0][0] + tri[1][0] + tri[2][0]) / 3, y: (tri[0][1] + tri[1][1] + tri[2][1]) / 3, w, h, flip };
 }
+
+/** World position of a wedge's low end (where the slope meets the base). */
+export function wedgeLowEnd(o: Outline & { x: number; y: number; theta: number }): V2 {
+  const lx = o.flip ? (2 * o.w) / 3 : (-2 * o.w) / 3, ly = -o.h / 3;
+  const c = Math.cos(o.theta), s = Math.sin(o.theta);
+  return [o.x + c * lx - s * ly, o.y + s * lx + c * ly];
+}
+
+/** Centroid of a wedge of size w × h whose low end sits at `low`. */
+export function wedgeFromLowEnd(low: V2, w: number, h: number, flip: boolean, theta: number): { x: number; y: number } {
+  const lx = flip ? (2 * w) / 3 : (-2 * w) / 3, ly = -h / 3;
+  const c = Math.cos(theta), s = Math.sin(theta);
+  return { x: low[0] - (c * lx - s * ly), y: low[1] - (s * lx + c * ly) };
+}

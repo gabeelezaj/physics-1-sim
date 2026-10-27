@@ -45,14 +45,21 @@ export class Simulation {
   }
 
   /**
-   * Energy-balance error relative to the largest kinetic energy so far:
-   * (T + V + dissipated − E₀) / max T. Zero for exact integration, with or
+   * Energy-balance error (T + V + dissipated − E₀) as a percentage of a
+   * reference energy: the largest kinetic energy so far, but at least 1% of
+   * Σ m g · 1 m, so the first instants (when hardly anything moves yet) are
+   * not divided by almost nothing. Zero for exact integration, with or
    * without damping.
    */
   driftPercent(): number {
     const e = this.energy();
-    const ref = Math.max(this.keMax, 1e-12);
-    return (100 * (e.total + this.dissipated - this.E0)) / ref;
+    return (100 * (e.total + this.dissipated - this.E0)) / this.energyRef();
+  }
+
+  energyRef(): number {
+    let floor = 0;
+    for (const b of this.sys.bodies) floor += b.m * this.sys.g;
+    return Math.max(this.keMax, 0.01 * floor, 1e-12);
   }
 
   /**

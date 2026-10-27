@@ -3,7 +3,8 @@
 
 import { ropeGeometry } from '../engine/rope';
 import { groundEnds, groundFromEnds } from '../model/ground';
-import type { Attach, El, GroundEl, Scene } from '../model/types';
+import { wedgeFromLowEnd, wedgeLowEnd } from '../model/shapes';
+import type { Attach, El, GroundEl, RectEl, Scene } from '../model/types';
 import { App, CoordKey } from './app';
 import type { Editor } from './editor';
 import { liveRows } from './live';
@@ -167,10 +168,14 @@ export class PropsPanel {
     h.prepend(name);
     this.root.appendChild(h);
 
-    if (e.kind === 'ground') this.renderGround(e);
+    if (e.kind === 'ground') {
+      if (e.shape === 'wedge') this.renderRamp(e); else this.renderGround(e);
+    }
+    if (e.kind === 'rect' && e.shape === 'wedge') this.renderRamp(e);
+    const own = e.kind === 'rect' && e.shape === 'wedge' ? FIELDS.rect.filter((f) => f.key !== 'w' && f.key !== 'h') : FIELDS[e.kind];
     const sections: [string, Field[]][] = [
-      ['Properties', FIELDS[e.kind].filter((f) => !f.init)],
-      ['Initial conditions (t = 0)', FIELDS[e.kind].filter((f) => f.init)],
+      ['Properties', own.filter((f) => !f.init)],
+      ['Initial conditions (t = 0)', own.filter((f) => f.init)],
     ];
     for (const [title, fields] of sections) {
       if (!fields.length) continue;
@@ -254,6 +259,50 @@ export class PropsPanel {
     }
   }
 
+  /**
+   * Ramp (fixed) or wedge (movable): slope angle, base and height, which way
+   * it rises, and a switch between the two. The low end of the slope stays
+   * put while the size or angle changes.
+   */
+  private renderRamp(g: GroundEl | RectEl): void {
+    const head = document.createElement('div');
+    head.className = 'props-section';
+    head.textContent = g.kind === 'ground' ? 'Ramp (fixed)' : 'Wedge (movable)';
+    this.root.appendChild(head);
+    const grid = document.createElement('div');
+    grid.className = 'fields';
+    const reshape = (w: number, h: number, flip: boolean) => this.app.commit((s) => {
+      const t = s.elements.find((x) => x.id === g.id) as GroundEl | RectEl;
+      const low = wedgeLowEnd(t);
+      Object.assign(t, { w, h, flip }, wedgeFromLowEnd(low, w, h, flip, t.theta));
+    }, { lock: { id: g.id, keys: ['x', 'y'] } });
+    const angle = (Math.atan2(g.h, g.w) * 180) / Math.PI;
+    grid.append(
+      this.input('slope angle', 'num', angle, (v) => {
+        const a = Math.min(85, Math.max(1, Number(v)));
+        reshape(g.w, g.w * Math.tan((a * Math.PI) / 180), !!g.flip);
+      }, { unit: '°', step: 1, key: 'rampAngle' }),
+      this.input('base', 'num', g.w, (v) => reshape(Math.max(0.05, Number(v)), g.h, !!g.flip), { unit: 'm', step: 0.05, key: 'rampW' }),
+      this.input('height', 'num', g.h, (v) => reshape(g.w, Math.max(0.02, Number(v)), !!g.flip), { unit: 'm', step: 0.05, key: 'rampH' }),
+      this.input('rises to the left', 'bool', !!g.flip, (v) => reshape(g.w, g.h, !!v), { key: 'rampFlip' }),
+      this.input('movable (slides)', 'bool', g.kind === 'rect', (v) => this.app.commit((s) => {
+        const i = s.elements.findIndex((x) => x.id === g.id);
+        const t = s.elements[i] as GroundEl | RectEl;
+        const base = { id: t.id, name: t.name, x: t.x, y: t.y, theta: t.theta, w: t.w, h: t.h, shape: 'wedge' as const, flip: t.flip };
+        s.elements[i] = v
+          ? { ...base, kind: 'rect', vx: 0, vy: 0, omega: 0, m: 3, I: null }
+          : { ...base, kind: 'ground' };
+      }), { key: 'rampMovable' }),
+    );
+    if (g.kind === 'ground') {
+      grid.append(
+        this.input('x (centroid)', 'num', g.x, (v) => this.app.commit((s) => { (s.elements.find((x) => x.id === g.id) as GroundEl).x = Number(v); }), { unit: 'm', step: 0.05, key: 'rampX' }),
+        this.input('y (centroid)', 'num', g.y, (v) => this.app.commit((s) => { (s.elements.find((x) => x.id === g.id) as GroundEl).y = Number(v); }), { unit: 'm', step: 0.05, key: 'rampY' }),
+      );
+    }
+    this.root.appendChild(grid);
+  }
+
   /** Ground pieces are edited by their surface end points. */
   private renderGround(g: GroundEl): void {
     const ends = groundEnds(g);
@@ -300,13 +349,17 @@ export class PropsPanel {
 
   private info(e: El): string {
     switch (e.kind) {
-      case 'rect': return 'Angles are measured counter-clockwise from the body\'s long axis. Leave I blank for a uniform plate, m(L²+h²)/12. Bodies joined directly by a pin or rod never collide with each other.';
+      case 'rect': return e.shape === 'wedge'
+        ? 'A movable wedge (uniform right triangle, I = m(b² + h²)/18 about its centroid). Its position is its centre of mass. Untick “movable” to fix it in place.'
+        : 'Angles are measured counter-clockwise from the body\'s long axis. Leave I blank for a uniform plate, m(L²+h²)/12. Bodies joined directly by a pin or rod never collide with each other.';
       case 'pulley': return 'Leave I blank for a uniform disc, ½mr². The rope does not slip, so the pulley\'s inertia enters the dynamics.';
       case 'slider': return 'The attachment point stays on a fixed straight track. With rotation locked the body translates only (a cart).';
       case 'tspring': return 'Torque −k_t(θ_A − θ_B − θ₀) on body A of the pin, opposite on body B.';
       case 'pin': return 'Revolute joint: the two attachment points coincide. Add a torsional spring with the palette tool.';
       case 'rope': return 'Inextensible, always taut (bilateral). Wrap direction per pulley: CCW = rope travels counter-clockwise around it.';
-      case 'ground': return 'Fixed and solid: bodies bounce off it. The hatched side is the inside. Drag the square handles on the canvas to move either end.';
+      case 'ground': return e.shape === 'wedge'
+        ? 'A fixed, frictionless incline: blocks and balls slide down it at g sin θ. Tick “movable” to turn it into a wedge that slides on the floor when something rides it.'
+        : 'Fixed and solid: bodies bounce off it. The hatched side is the inside. Drag the square handles on the canvas to move either end.';
       default: return '';
     }
   }

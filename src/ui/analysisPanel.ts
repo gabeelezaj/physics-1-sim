@@ -190,7 +190,7 @@ export class AnalysisPanel {
       { label: 'ΔE', color: '#111', data: de },
       { label: 'W', color: PALETTE[3], data: W },
     ]);
-    const ref = Math.max(sim.keMax, 1e-12);
+    const ref = sim.energyRef();
     const E0 = sim.E0;
     const tot = rec.ch[n + 2] ?? [];
     this.driftPlot.draw(rec.t, [{ label: 'balance', color: '#7c3aed', data: tot.map((v, i) => (100 * (v + (W[i] ?? 0) - E0)) / ref) }]);

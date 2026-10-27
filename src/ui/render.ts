@@ -6,6 +6,7 @@ import type { PointForce } from '../engine/forces';
 import { System } from '../engine/system';
 import type { Attach, El, GroundEl, Scene, TSpringEl } from '../model/types';
 import { si } from './format';
+import { localPolygon, type Outline } from '../model/shapes';
 
 export interface Pose {
   x: number;
@@ -191,7 +192,7 @@ export class Renderer {
     }
 
     for (const e of els) {
-      if (e.kind === 'rect') this.drawRect(Renderer.pose(scene, sys, q, e.id)!, e.w, e.h, strokeFor(e), widthFor(e, 1.6));
+      if (e.kind === 'rect') this.drawRect(Renderer.pose(scene, sys, q, e.id)!, e, strokeFor(e), widthFor(e, 1.6));
     }
     for (const e of els) {
       if (e.kind === 'pulley') {
@@ -257,7 +258,7 @@ export class Renderer {
     ctx.globalAlpha = 0.5;
     for (const e of ghosts) {
       if (e.kind === 'ground') this.drawGround(e, C.sel, 2);
-      else if (e.kind === 'rect') this.drawRect({ x: e.x, y: e.y, theta: e.theta }, e.w, e.h, C.sel, 1.6);
+      else if (e.kind === 'rect') this.drawRect({ x: e.x, y: e.y, theta: e.theta }, e, C.sel, 1.6);
       else if (e.kind === 'pulley') this.drawPulley({ x: e.x, y: e.y, theta: e.theta }, e.r, e.fixedAxle, C.sel, 1.6);
       else if (e.kind === 'point') {
         ctx.beginPath();
@@ -352,6 +353,7 @@ export class Renderer {
   }
 
   drawGround(g: GroundEl, stroke: string, lw: number): void {
+    if (g.shape === 'wedge') return this.drawRamp(g, stroke, lw);
     const { ctx } = this;
     const p = { x: g.x, y: g.y, theta: g.theta };
     const hw = g.w / 2, hh = g.h / 2;
@@ -386,10 +388,49 @@ export class Renderer {
     ctx.stroke();
   }
 
-  private drawRect(p: Pose, w: number, h: number, stroke: string, lw: number): void {
+  /** Fixed ramp: hatched triangle with a bold slope line and base. */
+  private drawRamp(g: GroundEl, stroke: string, lw: number): void {
     const { ctx } = this;
-    const hw = w / 2, hh = h / 2;
-    const pts = [this.local(p, -hw, -hh), this.local(p, hw, -hh), this.local(p, hw, hh), this.local(p, -hw, hh)];
+    const p = { x: g.x, y: g.y, theta: g.theta };
+    const pts = localPolygon(g).map(([lx, ly]) => this.local(p, lx, ly));
+    ctx.save();
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    ctx.fillStyle = '#f3f4f6';
+    ctx.fill();
+    ctx.clip();
+    ctx.strokeStyle = '#8a8f98';
+    ctx.lineWidth = 1;
+    const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    ctx.beginPath();
+    for (let x = x0 - (y1 - y0); x < x1; x += 9) {
+      ctx.moveTo(x, y1);
+      ctx.lineTo(x + (y1 - y0), y0);
+    }
+    ctx.stroke();
+    ctx.restore();
+    // vertices are base-left, base-right, top (CCW); for a rising-left wedge they are reversed
+    ctx.strokeStyle = stroke;
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = lw * 0.6;
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    ctx.stroke();
+    const [a, , c] = g.flip ? [pts[2], pts[1], pts[0]] : pts;
+    ctx.lineWidth = lw + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(a[0], a[1]);
+    ctx.lineTo(c[0], c[1]);
+    ctx.stroke();
+  }
+
+  private drawRect(p: Pose, o: Outline, stroke: string, lw: number): void {
+    const { ctx } = this;
+    const pts = localPolygon(o).map(([lx, ly]) => this.local(p, lx, ly));
+    const w = o.w, h = o.h;
     ctx.beginPath();
     pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
     ctx.closePath();
@@ -398,7 +439,7 @@ export class Renderer {
     ctx.strokeStyle = stroke;
     ctx.lineWidth = lw;
     ctx.stroke();
-    this.drawCOM(this.sx(p.x), this.sy(p.y), Math.min(6, Math.min(w, h) * this.view.scale * 0.35), -p.theta);
+    this.drawCOM(this.sx(p.x), this.sy(p.y), Math.min(6, Math.min(w, h) * this.view.scale * (o.shape === 'wedge' ? 0.18 : 0.35)), -p.theta);
   }
 
   /** Quartered centre-of-mass symbol. */

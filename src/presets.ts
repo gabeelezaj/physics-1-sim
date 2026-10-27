@@ -3,6 +3,7 @@
 import { RopeC } from './engine/constraints';
 import { System } from './engine/system';
 import { at, ground, pin, point, pulley, rect, rod, rope, slider, spring, tspring } from './model/factory';
+import { rampFromSlope } from './model/shapes';
 import { emptyScene, type Attach, type GroundEl, type RectEl, type Scene } from './model/types';
 
 export interface Preset {
@@ -159,9 +160,35 @@ export function collidingCarts(): Scene {
   return s;
 }
 
+/**
+ * (5) The classic: a block released on a frictionless wedge that is itself
+ * free to slide on a frictionless floor. Wedge acceleration
+ * A = m g sinθ cosθ / (M + m sin²θ). The block reaches the floor heading
+ * left and runs up a fixed ramp; the wedge recoils right.
+ */
+export function blockOnSlidingWedge(): Scene {
+  const s = emptyScene();
+  s.title = 'Block on a sliding wedge';
+  s.settings.restitution = 0.4;
+  const th = deg(30);
+  const floor = ground('G1', 0, -0.06, { w: 5.6, h: 0.12 });
+  const wallL = ground('G2', -2.76, 0.45, { theta: -Math.PI / 2, w: 1.0, h: 0.12 });
+  const wallR = ground('G3', 2.76, 0.45, { theta: Math.PI / 2, w: 1.0, h: 0.12 });
+  const L = 1.4;
+  const r = rampFromSlope([-0.6, 0], [-0.6 + L * Math.cos(th), L * Math.sin(th)])!;
+  const wedge = rect('W', r.x, r.y, 3, r.w, r.h, { shape: 'wedge', flip: r.flip });
+  const d = 1.15, lift = 0.06;
+  const block = rect('B', -0.6 + d * Math.cos(th) - lift * Math.sin(th), d * Math.sin(th) + lift * Math.cos(th), 1, 0.24, 0.12, { theta: th });
+  const ramp = rampFromSlope([-0.95, 0], [-2.35, 0.55])!;
+  const fixedRamp = ground('G4', ramp.x, ramp.y, { shape: 'wedge', w: ramp.w, h: ramp.h, flip: ramp.flip });
+  s.elements.push(floor, wallL, wallR, fixedRamp, wedge, block);
+  return s;
+}
+
 export const PRESETS: Preset[] = [
   { id: 'cart-bars', title: '1 · Cart with two tilted bars', build: cartWithTwoBars, modal: true },
   { id: 'pendulum-pulleys', title: '2 · Pendulum + masses over pulleys', build: pendulumAndPulleys, modal: true },
   { id: 'central-side', title: '3 · Central mass + side pendulums', build: centralMassWithSidePendulums, modal: true },
   { id: 'colliding-carts', title: '4 · Colliding carts', build: collidingCarts },
+  { id: 'sliding-wedge', title: '5 · Block on a sliding wedge', build: blockOnSlidingWedge },
 ];

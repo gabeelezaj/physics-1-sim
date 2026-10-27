@@ -6,8 +6,8 @@
 import { solveFullPivotInPlace } from '../math/linalg';
 import type { Attach, DynBodyEl, El, GroundEl, PinEl, Scene } from '../model/types';
 import { Constraint, PinC, RodC, RopeC, SliderC } from './constraints';
-import { ContactF, contactGains, type BodyShape } from './contact';
-import { localPolygon, plateInertia } from '../model/shapes';
+import { ContactF, GroundContactF, contactGains, type BodyShape } from './contact';
+import { insidePolygon, localPolygon, plateInertia, toWorld } from '../model/shapes';
 import { ForceEl, FrictionF, PointForce, SpringF, TSpringF } from './forces';
 import { APt, SBody, addPtForce, ptPos } from './kin';
 import { RopeNode } from './rope';
@@ -142,21 +142,39 @@ export class System {
         : { kind: 'circle', r: e.kind === 'pulley' ? e.r : e.radius };
       shapes.push({ b, shape, fixedAxle: e.kind === 'pulley' && e.fixedAxle });
     }
-    const add = (what: string, f: ContactF) => {
+    // edges of a ground piece lying against another ground piece (a ramp's
+    // base on the floor, a wall's foot) are buried: never an exit direction
+    const groundList = [...this.grounds.values()];
+    const buried = new Map(groundList.map((g) => {
+      const v = localPolygon(g);
+      const flags = v.map((a, i) => {
+        const b = v[(i + 1) % v.length];
+        const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        const n: [number, number] = [(b[1] - a[1]) / L, -(b[0] - a[0]) / L];
+        // just outside the edge at three places along it
+        const probes = [0.2, 0.5, 0.8].map((t): [number, number] => [a[0] + (b[0] - a[0]) * t + n[0] * 2e-3, a[1] + (b[1] - a[1]) * t + n[1] * 2e-3]);
+        const world = toWorld(g.x, g.y, g.theta, probes);
+        return world.every((p) => groundList.some((o) => {
+          if (o === g) return false;
+          const c = Math.cos(o.theta), s = Math.sin(o.theta), dx = p[0] - o.x, dy = p[1] - o.y;
+          return insidePolygon(localPolygon(o), [c * dx + s * dy, -s * dx + c * dy], 1e-9);
+        }));
+      });
+      return [g.id, flags] as const;
+    }));
+    const add = (what: string, f: ContactF | GroundContactF) => {
       if (f.maxDepth(q) > 1e-3) this.warnings.push(`${what} start overlapping; contact between them is off.`);
       else this.forces.push(f);
     };
     for (const { b, shape, fixedAxle } of shapes) {
       if (fixedAxle) continue;
       const { k, c } = contactGains(b.m, dt, e0);
-      for (const g of this.grounds.values()) {
-        if (joined.has(`${b.id}|${g.id}`)) continue;
-        add(`${b.name} and ${g.name}`, new ContactF(
-          { b, name: b.name, shape },
-          { b: null, name: g.name, shape: { kind: 'poly', verts: localPolygon(g) }, fixed: { x: g.x, y: g.y, theta: g.theta } },
-          k, c,
-        ));
-      }
+      // one contact with all ground pieces at once (except ones it is pinned to)
+      const parts = groundList.filter((g) => !joined.has(`${b.id}|${g.id}`)).map((g) => ({
+        b: null, name: g.name, shape: { kind: 'poly' as const, verts: localPolygon(g) },
+        fixed: { x: g.x, y: g.y, theta: g.theta }, buried: buried.get(g.id),
+      }));
+      if (parts.length) add(`${b.name} and the ground`, new GroundContactF({ b, name: b.name, shape }, parts, k, c));
     }
     for (let i = 0; i < shapes.length; i++) {
       for (let j = i + 1; j < shapes.length; j++) {
@@ -350,7 +368,7 @@ export class System {
   /** True if any contact (ground or body–body) is currently penetrating. */
   inContact(q: ArrayLike<number>): boolean {
     for (const f of this.forces) {
-      if (f instanceof ContactF && f.hits(q).length) return true;
+      if ((f instanceof ContactF || f instanceof GroundContactF) && f.hits(q).length) return true;
     }
     return false;
   }

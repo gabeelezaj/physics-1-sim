@@ -1,7 +1,7 @@
 // Element palette: textbook-style icons, click to arm a tool or drag onto the canvas.
 
 export type Tool =
-  | 'select' | 'ground' | 'point' | 'rect' | 'pulley'
+  | 'select' | 'ground' | 'ramp' | 'point' | 'rect' | 'pulley'
   | 'pin' | 'rod' | 'slider' | 'spring' | 'tspring' | 'rope';
 
 interface Item {
@@ -24,6 +24,7 @@ const GROUPS: [string, Item[]][] = [
   ]],
   ['Bodies', [
     { tool: 'ground', key: 'g', label: 'Ground', icon: s(`<line x1="3" y1="12" x2="23" y2="12" stroke-width="2"/>${hatch(3, 12, 20)}`), help: 'Click two points to draw a floor, wall or ceiling between them.' },
+    { tool: 'ramp', key: 'w', label: 'Ramp / wedge', icon: s(`<path d="M3 20 L23 20 L23 7 Z" fill="#f3f4f6"/><line x1="3" y1="20" x2="23" y2="7" stroke-width="2"/>`), help: 'Click the bottom then the top of the slope to draw an incline. Tick "movable" to make it a sliding wedge.' },
     { tool: 'point', key: 'm', label: 'Point mass', icon: s('<circle cx="13" cy="13" r="6" fill="#c4c4c4"/>'), help: 'Click to place a point mass.' },
     { tool: 'rect', key: 'b', label: 'Rigid body', icon: s('<rect x="4" y="9" width="18" height="9" fill="#dcdcdc"/><circle cx="13" cy="13.5" r="2" fill="#111"/>'), help: 'Click to place a rectangular rigid body (bar, cart, block).' },
     { tool: 'pulley', key: 'p', label: 'Pulley', icon: s('<circle cx="13" cy="14" r="7.5" fill="#dcdcdc"/><circle cx="13" cy="14" r="1.6" fill="#fff"/><line x1="13" y1="2" x2="13" y2="12"/>'), help: 'Click to place a pulley (fixed axle by default).' },

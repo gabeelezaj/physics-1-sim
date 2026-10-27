@@ -79,3 +79,44 @@ describe('ramps', () => {
     expect(sim.sys.bodies[0].I).toBeCloseTo((2 * (0.81 + 0.36)) / 18, 12);
   });
 });
+
+describe('ramp toes and inside corners', () => {
+  it('a block sliding along the floor rides up onto a ramp instead of bouncing off its toe', () => {
+    const s = emptyScene();
+    s.settings.restitution = 0.4;
+    const r = rampFromSlope([-0.95, 0], [-2.35, 0.55])!;
+    s.elements.push(
+      ground('G1', 0, -0.06, { w: 5.6, h: 0.12 }),
+      ground('R', r.x, r.y, { shape: 'wedge', w: r.w, h: r.h, flip: r.flip }),
+      rect('B', -0.5, 0.06, 1, 0.24, 0.12, { vx: -2.4 }),
+    );
+    const sim = new Simulation(s);
+    const b = sim.sys.bodies[0];
+    let top = 0, worst = 0;
+    sim.run(1.2, (sm) => {
+      top = Math.max(top, sm.q[b.idx + 1]);
+      worst = Math.max(worst, Math.abs(sm.driftPercent()));
+    });
+    // v²/2g = 0.29 m is the most it could climb; the kink at the toe costs a little
+    expect(top - 0.06).toBeGreaterThan(0.2);
+    expect(top - 0.06).toBeLessThan(0.3);
+    expect(worst).toBeLessThan(1);
+  });
+
+  it('a body pushed into the corner of floor and wall is held without energy kicks', () => {
+    const s = emptyScene();
+    s.settings.restitution = 0.5;
+    s.elements.push(
+      ground('G1', 0, -0.06, { w: 3, h: 0.12 }),
+      ground('G2', 1.06, 0.45, { theta: Math.PI / 2, w: 1, h: 0.12 }),
+      rect('B', 0.5, 0.1, 2, 0.4, 0.2, { vx: 1.5 }),
+    );
+    const sim = new Simulation(s);
+    let worst = 0;
+    sim.run(2, (sm) => (worst = Math.max(worst, Math.abs(sm.driftPercent()))));
+    expect(worst).toBeLessThan(1);
+    const b = sim.sys.bodies[0];
+    expect(sim.q[b.idx] + 0.2).toBeLessThan(1.0 + 0.005); // stopped by the wall
+    expect(sim.q[b.idx + 1]).toBeCloseTo(0.1, 2); // still on the floor
+  });
+});

@@ -4,6 +4,7 @@ import { RopeC } from '../engine/constraints';
 import { autoWrapDir, ropeGeometry } from '../engine/rope';
 import * as F from '../model/factory';
 import { defaultSide, groundEnds, groundFromEnds, snapSegment } from '../model/ground';
+import { insidePolygon, localPolygon, rampFromSlope, snapPoints } from '../model/shapes';
 import type { Attach, El, GroundEl, PinEl, RopeRoute, Scene } from '../model/types';
 import { App } from './app';
 import { TOOL_KEYS, Tool, TOOL_HELP, TOOL_LABEL, buildPalette } from './palette';
@@ -12,7 +13,7 @@ import { Renderer } from './render';
 type V = [number, number];
 
 interface Pending {
-  tool: 'rod' | 'spring' | 'rope' | 'ground';
+  tool: 'rod' | 'spring' | 'rope' | 'ground' | 'ramp';
   a: Attach;
   aWorld: V;
   route: string[];
@@ -80,6 +81,17 @@ export class Editor {
       }
       return out;
     }
+    if (this.tool === 'ramp') {
+      if (pend) {
+        const b = this.slopeEnd(pend.aWorld, cur);
+        const ramp = this.makeRamp(pend.aWorld, b);
+        if (ramp) out.ghosts = [ramp];
+        out.measure = { p: b, text: this.slopeText(pend.aWorld, b) };
+      } else {
+        out.marker = { p: this.snapV(cur), label: '' };
+      }
+      return out;
+    }
     if (this.tool === 'point' || this.tool === 'rect' || this.tool === 'pulley') {
       out.ghosts = [this.makeBody(this.tool, this.snapV(cur))];
       return out;
@@ -115,10 +127,32 @@ export class Editor {
     return `${L.toFixed(2)} m · ${Math.round(ang)}°`;
   }
 
+  /** The selected flat ground piece (ramps have no end handles). */
   private selectedGround(): GroundEl | null {
     const id = [...this.app.selection][0];
     const e = this.scene.elements.find((x) => x.id === id);
-    return e && e.kind === 'ground' ? e : null;
+    return e && e.kind === 'ground' && e.shape !== 'wedge' ? e : null;
+  }
+
+  /** Ramp slope end: angle snapped to 5° steps and length to 5 cm. */
+  private slopeEnd(a: V, p: V): V {
+    if (!this.app.snap || this.shiftDown) return p;
+    const dx = p[0] - a[0], dy = p[1] - a[1];
+    const L = Math.round(Math.hypot(dx, dy) / 0.05) * 0.05;
+    const inc = Math.PI / 36;
+    const ang = Math.round(Math.atan2(dy, dx) / inc) * inc;
+    return [a[0] + L * Math.cos(ang), a[1] + L * Math.sin(ang)];
+  }
+
+  private slopeText(a: V, b: V): string {
+    const ang = Math.abs((Math.atan2(b[1] - a[1], Math.abs(b[0] - a[0])) * 180) / Math.PI);
+    return `slope ${Math.round(ang)}° · ${dist(a, b).toFixed(2)} m`;
+  }
+
+  private makeRamp(a: V, b: V): GroundEl | null {
+    const r = rampFromSlope(a, b);
+    if (!r) return null;
+    return F.ground(F.nextName(this.scene, 'ground'), r.x, r.y, { shape: 'wedge', w: r.w, h: r.h, flip: r.flip });
   }
 
   /** Second end of a ground segment being drawn, with angle/length snapping. */
@@ -186,6 +220,9 @@ export class Editor {
       if (this.tool === 'ground') {
         html = p ? `${name} · step 2/2 · click the other end (snaps to 15°, hold <kbd>Shift</kbd> for free angle) · ${esc}`
           : `${name} · step 1/2 · click where the surface starts · ${esc}`;
+      } else if (this.tool === 'ramp') {
+        html = p ? `${name} · step 2/2 · click the top of the slope (snaps to 5°, hold <kbd>Shift</kbd> for free angle) · ${esc}`
+          : `${name} · step 1/2 · click the bottom of the slope · ${esc}`;
       } else if (this.tool === 'rope') {
         html = !p ? `${name} · step 1 · click the first end (a body, or empty space for a fixed point) · ${esc}`
           : `${name} · click pulleys in order (${p.route.length} so far), then the other end · ${esc}`;
@@ -231,17 +268,12 @@ export class Editor {
     for (let i = els.length - 1; i >= 0; i--) {
       const e = els[i];
       if (e.kind === 'pulley' && dist(p, this.poseXY(e.id)) <= e.r + tol) return e;
-      if (e.kind === 'rect') {
-        const [lx, ly] = this.toLocal(e.id, p);
-        if (Math.abs(lx) <= e.w / 2 + tol && Math.abs(ly) <= e.h / 2 + tol) return e;
-      }
+      if (e.kind === 'rect' && insidePolygon(localPolygon(e), this.toLocal(e.id, p), tol)) return e;
     }
     if (includeGround) {
       for (let i = els.length - 1; i >= 0; i--) {
         const e = els[i];
-        if (e.kind !== 'ground') continue;
-        const [lx, ly] = this.toLocal(e.id, p);
-        if (Math.abs(lx) <= e.w / 2 + tol && Math.abs(ly) <= e.h / 2 + tol) return e;
+        if (e.kind === 'ground' && insidePolygon(localPolygon(e), this.toLocal(e.id, p), tol)) return e;
       }
     }
     return null;
@@ -269,19 +301,17 @@ export class Editor {
     }
     let local = this.toLocal(body.id, p);
     let feature = '';
-    if (body.kind === 'rect' && this.app.snap) {
-      // snap to corners, edge midpoints, quarter points and centre
+    if ((body.kind === 'rect' || (body.kind === 'ground' && body.shape === 'wedge')) && this.app.snap) {
+      // snap to corners, edge midpoints, quarter points and the centre
+      const cands = snapPoints(localPolygon(body));
+      cands.push({ p: [0, 0], label: 'centre' });
+      if (body.shape !== 'wedge') {
+        cands.push({ p: [-body.w / 2, 0], label: 'end' }, { p: [body.w / 2, 0], label: 'end' });
+      }
       let best = this.pxToWorld(10), pick: V | null = null;
-      for (const fx of [-0.5, -0.25, 0, 0.25, 0.5]) {
-        for (const fy of [-0.5, 0, 0.5]) {
-          const c: V = [fx * body.w, fy * body.h];
-          const d = dist(c, local);
-          if (d < best) {
-            best = d;
-            pick = c;
-            feature = fx === 0 && fy === 0 ? 'centre' : Math.abs(fx) === 0.5 && fy === 0 ? 'end' : Math.abs(fx) === 0.5 ? 'corner' : 'edge';
-          }
-        }
+      for (const c of cands) {
+        const d = dist(c.p, local);
+        if (d < best) { best = d; pick = c.p; feature = c.label; }
       }
       local = pick ?? local;
     } else if (body.kind === 'ground' && this.app.snap) {
@@ -366,6 +396,19 @@ export class Editor {
         if (dist(a, b) < 0.05) { this.flash('Make the surface at least 5 cm long.'); return; }
         this.pending = null;
         add(this.makeGround(a, b));
+        return;
+      }
+      case 'ramp': {
+        if (!this.pending) {
+          this.pending = { tool: 'ramp', a: { body: null, p: sp }, aWorld: sp, route: [] };
+          this.updateHint();
+          app.redraw();
+          return;
+        }
+        const ramp = this.makeRamp(this.pending.aWorld, this.slopeEnd(this.pending.aWorld, p));
+        if (!ramp) { this.flash('Give the slope some height and length.'); return; }
+        this.pending = null;
+        add(ramp);
         return;
       }
       case 'point':
