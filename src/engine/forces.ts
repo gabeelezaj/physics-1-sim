@@ -15,7 +15,7 @@ export interface PointForce {
   /** Pure torque (for torsional springs); fx = fy = 0 then. */
   torque?: number;
   label: string;
-  kind: 'gravity' | 'spring' | 'tspring' | 'friction' | 'constraint';
+  kind: 'gravity' | 'spring' | 'tspring' | 'friction' | 'constraint' | 'contact';
 }
 
 export interface ForceEl {

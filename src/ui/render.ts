@@ -45,6 +45,7 @@ const C = {
   constraint: '#c2410c',
   friction: '#a16207',
   tspring: '#7e22ce',
+  contact: '#be123c',
 };
 
 export class Renderer {
@@ -585,7 +586,7 @@ export class Renderer {
     if (fmax < 1e-9) return;
     const scale = this.forceScale ?? 70 / fmax;
     const color: Record<PointForce['kind'], string> = {
-      gravity: C.gravity, spring: C.spring, constraint: C.constraint, friction: C.friction, tspring: C.tspring,
+      gravity: C.gravity, spring: C.spring, constraint: C.constraint, friction: C.friction, tspring: C.tspring, contact: C.contact,
     };
     ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
     for (const f of forces) {

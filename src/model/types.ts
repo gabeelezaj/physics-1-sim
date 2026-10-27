@@ -139,6 +139,10 @@ export interface SimSettings {
   /** Baumgarte stabilization gains (s⁻¹). */
   alpha: number;
   beta: number;
+  /** Bodies collide with ground pieces (absent in older saves = on). */
+  contact?: boolean;
+  /** Coefficient of restitution for ground contact, 0–1. */
+  restitution?: number;
 }
 
 export interface Scene {
@@ -160,7 +164,7 @@ export function emptyScene(): Scene {
     version: 1,
     title: 'Untitled',
     gravity: { on: true, g: 9.81 },
-    settings: { dt: 0.001, alpha: 10, beta: 10 },
+    settings: { dt: 0.001, alpha: 10, beta: 10, contact: true, restitution: 0.5 },
     elements: [],
   };
 }

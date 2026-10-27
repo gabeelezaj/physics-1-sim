@@ -6,6 +6,7 @@
 import { solveFullPivotInPlace } from '../math/linalg';
 import type { Attach, DynBodyEl, El, GroundEl, PinEl, Scene } from '../model/types';
 import { Constraint, PinC, RodC, RopeC, SliderC } from './constraints';
+import { ContactF, contactGains } from './contact';
 import { ForceEl, FrictionF, PointForce, SpringF, TSpringF } from './forces';
 import { APt, SBody, addPtForce, ptPos } from './kin';
 import { RopeNode } from './rope';
@@ -94,6 +95,7 @@ export class System {
         this.warnings.push(`${e.name}: ${(err as Error).message}`);
       }
     }
+    if (this.scene.settings.contact !== false) this.compileContacts();
     let r = 0;
     for (const c of this.cons) {
       this.rowStart.push(r);
@@ -108,6 +110,43 @@ export class System {
     this.A = new Float64Array(r * r);
     this.rhs = new Float64Array(r);
     this.perm = new Int32Array(r);
+  }
+
+  /**
+   * One contact element per (moving body, ground piece) pair, except pairs
+   * joined directly by a pin or rod, fixed-axle pulleys, and pairs that
+   * already overlap in the initial configuration.
+   */
+  private compileContacts(): void {
+    const els = this.scene.elements;
+    const joined = new Set<string>();
+    for (const e of els) {
+      if (e.kind !== 'pin' && e.kind !== 'rod') continue;
+      const a = e.a.body, b = e.b.body;
+      if (a && b) { joined.add(`${a}|${b}`); joined.add(`${b}|${a}`); }
+    }
+    const { q } = this.initialState();
+    const e0 = this.scene.settings.restitution ?? 0.5;
+    for (const e of els) {
+      const b = this.byId.get(e.id);
+      if (!b) continue;
+      if (e.kind === 'pulley' && e.fixedAxle) continue;
+      const shape = e.kind === 'rect' ? { kind: 'box' as const, hw: e.w / 2, hh: e.h / 2 }
+        : e.kind === 'pulley' ? { kind: 'circle' as const, r: e.r }
+        : e.kind === 'point' ? { kind: 'circle' as const, r: e.radius } : null;
+      if (!shape) continue;
+      const { k, c } = contactGains(b.m, this.scene.settings.dt, e0);
+      for (const g of this.grounds.values()) {
+        if (joined.has(`${b.id}|${g.id}`)) continue;
+        const box = { id: g.id, name: g.name, x: g.x, y: g.y, theta: g.theta, hw: g.w / 2, hh: g.h / 2 };
+        const cf = new ContactF(b, shape, box, k, c);
+        if (cf.maxDepth(q) > 1e-3) {
+          this.warnings.push(`${b.name} starts inside ${g.name}; contact between them is off.`);
+          continue;
+        }
+        this.forces.push(cf);
+      }
+    }
   }
 
   resolve(a: Attach): APt {
