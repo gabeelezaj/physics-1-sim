@@ -650,6 +650,9 @@ export class Editor {
     if (mod && ev.key.toLowerCase() === 'z') {
       ev.preventDefault();
       ev.shiftKey ? this.app.redo() : this.app.undo();
+    } else if (mod && ev.key.toLowerCase() === 'd') {
+      ev.preventDefault();
+      this.duplicateSelection();
     } else if (mod && ev.key.toLowerCase() === 'y') {
       ev.preventDefault();
       this.app.redo();
@@ -676,6 +679,66 @@ export class Editor {
       const d: V = ev.key === 'ArrowLeft' ? [-step, 0] : ev.key === 'ArrowRight' ? [step, 0] : ev.key === 'ArrowUp' ? [0, step] : [0, -step];
       this.nudgeSelection(d);
     }
+  }
+
+  /**
+   * Copy the selected bodies, shifted right, together with every connector
+   * that only touches copied bodies or the world (pins, rods, springs,
+   * sliders, torsional springs, ropes).
+   */
+  duplicateSelection(): void {
+    const sel = this.app.selection;
+    const els = this.scene.elements;
+    const bodies = els.filter((e) => sel.has(e.id) && 'x' in e);
+    if (!bodies.length) { this.flash('Select one or more bodies to duplicate (⌘/Ctrl D).'); return; }
+    const off: V = [0.3, -0.3];
+    const map = new Map<string, string>();
+    const copies: El[] = [];
+    const clone = <T extends El>(e: T): T => JSON.parse(JSON.stringify(e));
+    for (const b of bodies) {
+      const c = clone(b);
+      c.id = F.newId(b.kind[0]);
+      c.name = F.nextName({ ...this.scene, elements: [...els, ...copies] }, b.kind);
+      if ('x' in c) { c.x += off[0]; c.y += off[1]; }
+      map.set(b.id, c.id);
+      copies.push(c);
+    }
+    const grounds = new Map(els.filter((e): e is GroundEl => e.kind === 'ground').map((g) => [g.id, g]));
+    // connectors may hang on the world or on a shared (uncopied) ground piece
+    const ok = (id: string | null) => id === null || map.has(id) || grounds.has(id);
+    const remap = (a: Attach): Attach => {
+      if (a.body === null) return { body: null, p: [a.p[0] + off[0], a.p[1] + off[1]] };
+      if (map.has(a.body)) return { body: map.get(a.body)!, p: [...a.p] as V };
+      const g = grounds.get(a.body)!;
+      const c = Math.cos(g.theta), s = Math.sin(g.theta);
+      return { body: a.body, p: [a.p[0] + c * off[0] + s * off[1], a.p[1] - s * off[0] + c * off[1]] };
+    };
+    for (const e of els) {
+      if (map.has(e.id) || !('a' in e)) continue;
+      const refs = 'b' in e ? [e.a.body, e.b.body] : [e.a.body];
+      if (e.kind === 'rope' && !e.route.every((r) => map.has(r.pulley))) continue;
+      if (!refs.every(ok) || !refs.some((r) => r !== null && map.has(r))) continue;
+      const c = clone(e);
+      c.id = F.newId(e.kind[0]);
+      c.name = F.nextName({ ...this.scene, elements: [...els, ...copies] }, e.kind);
+      c.a = remap(e.a);
+      if ('b' in c && 'b' in e) c.b = remap(e.b);
+      if (c.kind === 'slider' && e.kind === 'slider') c.origin = [e.origin[0] + off[0], e.origin[1] + off[1]];
+      if (c.kind === 'rope') c.route = c.route.map((r) => ({ ...r, pulley: map.get(r.pulley)! }));
+      map.set(e.id, c.id);
+      copies.push(c);
+    }
+    for (const e of els) {
+      if (e.kind !== 'tspring' || !map.has(e.pin)) continue;
+      const c = clone(e);
+      c.id = F.newId('t');
+      c.name = F.nextName({ ...this.scene, elements: [...els, ...copies] }, 'tspring');
+      c.pin = map.get(e.pin)!;
+      copies.push(c);
+    }
+    this.app.ensureEditMode();
+    this.app.commit((s) => s.elements.push(...copies));
+    this.app.select(copies.filter((c) => 'x' in c).map((c) => c.id));
   }
 
   /** Rotate selected bodies about their centres by `deg` degrees. */

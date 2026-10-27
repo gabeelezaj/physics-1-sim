@@ -22,6 +22,9 @@ npm run build    # typecheck + production bundle
 - **Keyboard:** every tool has a letter (shown on hover in the palette): V select, G ground, M mass, B body, P pulley, J pin, L rod, T track, S spring, Q torsional spring, C rope.
 - **Select / move:** click to select, drag bodies to move them. The rest of the mechanism re-assembles around the dragged body. `[` `]` rotates, the arrow keys nudge, Del deletes, Ctrl/⌘ Z and Shift Z undo and redo. Drag empty space to pan, scroll to zoom.
 - **Properties (right):** mass, inertia (leave it blank for the uniform-body value), size, initial position, angle, velocity, k, L₀, c, μ, rope length, and so on. All units are SI; angles are entered in degrees. A coordinate you type is held fixed while the constraints are re-satisfied.
+- **Scene menu** (top left): new, open, save as JSON, and the presets.
+- **Live values:** select anything to see its current state under its properties: body position, speed and energy; spring stretch and force; pin reaction; rope tension per segment and which pulleys it is on.
+- **Duplicate:** ⌘/Ctrl D copies the selected bodies plus the joints, springs and ropes between them. **F** fits the view. Drag the side panel's left edge to resize it.
 - **Toolbar:** play/pause (Space), step 10 ms, reset (R), speed presets (0.1× to 10×, with a "CPU-limited" note if a heavy scene can't keep up), gravity, collisions, snap, force arrows, labels, presets, and save/open as JSON. The scene is also autosaved to localStorage.
 
 ### The calculations panel
@@ -46,6 +49,8 @@ J q̈ = −J̇q̇ − 2α J q̇ − β² g(q)          (Baumgarte, α = β = 10 
 
 **Ropes over pulleys:** the straight runs are common tangents (signed-radius formula). One holonomic row fixes the total length, Σℓ + Σrφ = L. One no-slip row per pulley says the rope material between pulleys is conserved, `u·(v(T₂) − v(T₁)) = 0`, with the tangent points treated as points on the pulleys. That couples pulley spin to rope motion, which is how pulley inertia enters the dynamics. `J̇q̇` for the rope rows is a central difference along q̇.
 
+Wrap angles are tracked continuously. When a pulley's wrap passes through zero, the rope lets go of that pulley; it no longer flips to a 2π wrap and knots itself around it. A free pulley on the route catches the rope again when a straight run cuts into it, with the wrap direction set by the side it hits. The catch is a plastic no-slip impulse, and its energy loss is booked as dissipated energy.
+
 See [PLAN.md](PLAN.md) for the architecture and milestones.
 
 ## Verification (`npm test`)
@@ -59,6 +64,7 @@ See [PLAN.md](PLAN.md) for the architecture and milestones.
 | Energy over 60 s (pendulum at 90°, chaotic double pendulum, springs, spring-loaded Atwood, all three presets) | drift < 0.1% of peak kinetic energy |
 | Presets | assemble cleanly, have a stable equilibrium and the expected number of DOFs |
 | Collisions | a tumbling bar lands and rests on the floor; a pendulum bar bounces off a wall (< 1 cm overlap); e = 1 conserves energy; e = 0.5 halves the rebound speed |
+| Rope leaving / catching pulleys | a mass swung over a pulley releases the rope with no energy jump or wrap flip; a sweeping rope is caught by a pulley and spins it up |
 | Energy balance with dissipation | damped oscillator and bouncing bar: T + V + W stays equal to E₀ |
 
 ## Limitations

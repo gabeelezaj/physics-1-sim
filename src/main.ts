@@ -75,9 +75,18 @@ gVal.addEventListener('change', () => {
   if (Number.isFinite(g)) app.commit((s) => (s.gravity.g = g));
 });
 
-// presets and files
-const presetSel = $<HTMLSelectElement>('preset-select');
+// scene menu: new / open / save / presets
+const sceneBtn = $<HTMLButtonElement>('btn-scene');
+const sceneMenu = $('scene-menu');
 const emptyPresets = emptyEl.querySelector('.empty-presets')!;
+function setMenu(open: boolean): void {
+  sceneMenu.hidden = !open;
+  sceneBtn.setAttribute('aria-expanded', String(open));
+}
+sceneBtn.addEventListener('click', (ev) => { ev.stopPropagation(); setMenu(sceneMenu.hidden === true); });
+document.addEventListener('click', (ev) => { if (!sceneMenu.contains(ev.target as Node)) setMenu(false); });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') setMenu(false); });
+
 function loadPreset(id: string): void {
   const p = PRESETS.find((x) => x.id === id);
   if (!p) return;
@@ -85,32 +94,30 @@ function loadPreset(id: string): void {
   fitView();
 }
 for (const p of PRESETS) {
-  const o = document.createElement('option');
-  o.value = p.id;
-  o.textContent = p.title;
-  presetSel.appendChild(o);
-  const b = document.createElement('button');
-  b.textContent = p.title;
-  b.addEventListener('click', () => loadPreset(p.id));
-  emptyPresets.appendChild(b);
+  for (const host of [$('menu-presets'), emptyPresets]) {
+    const b = document.createElement('button');
+    b.textContent = p.title;
+    b.setAttribute('role', 'menuitem');
+    b.addEventListener('click', () => { setMenu(false); loadPreset(p.id); });
+    host.appendChild(b);
+  }
 }
-presetSel.addEventListener('change', () => {
-  const id = presetSel.value;
-  presetSel.value = '';
-  loadPreset(id);
-});
 
-$('btn-new').addEventListener('click', () => app.setScene(emptyScene()));
-$('btn-save').addEventListener('click', () => {
+const fileInput = $<HTMLInputElement>('file-input');
+function saveScene(): void {
   const blob = new Blob([JSON.stringify(app.scene, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `${(app.scene.title || 'mechanism').replace(/[^\w.-]+/g, '_')}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-});
-const fileInput = $<HTMLInputElement>('file-input');
-$('btn-load').addEventListener('click', () => fileInput.click());
+}
+sceneMenu.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((b) => b.addEventListener('click', () => {
+  setMenu(false);
+  if (b.dataset.act === 'new') app.setScene(emptyScene());
+  else if (b.dataset.act === 'open') fileInput.click();
+  else saveScene();
+}));
 fileInput.addEventListener('change', async () => {
   const f = fileInput.files?.[0];
   fileInput.value = '';
@@ -124,6 +131,29 @@ fileInput.addEventListener('change', async () => {
   } catch (err) {
     alert(`Could not load scene: ${(err as Error).message}`);
   }
+});
+
+// resizable side panel
+const side = $('side');
+const SIDE_KEY = 'mechanism-sandbox:side-width';
+try { const w = Number(localStorage.getItem(SIDE_KEY)); if (w > 0) side.style.width = `${w}px`; } catch { /* storage unavailable */ }
+$('side-resizer').addEventListener('pointerdown', (ev) => {
+  const el = ev.currentTarget as HTMLElement;
+  el.setPointerCapture(ev.pointerId);
+  el.classList.add('dragging');
+  const startX = ev.clientX, startW = side.getBoundingClientRect().width;
+  const move = (e: PointerEvent) => {
+    const w = Math.min(window.innerWidth * 0.65, Math.max(280, startW - (e.clientX - startX)));
+    side.style.width = `${w}px`;
+  };
+  const up = () => {
+    el.removeEventListener('pointermove', move);
+    el.removeEventListener('pointerup', up);
+    el.classList.remove('dragging');
+    try { localStorage.setItem(SIDE_KEY, String(side.getBoundingClientRect().width)); } catch { /* storage unavailable */ }
+  };
+  el.addEventListener('pointermove', move);
+  el.addEventListener('pointerup', up);
 });
 
 // ------------------------------------------------------------------ status
@@ -184,6 +214,11 @@ function fitView(): void {
   app.redraw();
 }
 $('btn-fit').addEventListener('click', () => fitView());
+window.addEventListener('keydown', (ev) => {
+  const t = ev.target as HTMLElement;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+  if ((ev.key === 'f' || ev.key === 'F') && !ev.metaKey && !ev.ctrlKey) fitView();
+});
 
 const resize = () => { app.renderer.resize(); app.redraw(); };
 new ResizeObserver(resize).observe(canvas);

@@ -34,7 +34,7 @@ const GROUPS: [string, Item[]][] = [
     { tool: 'slider', key: 't', label: 'Slider / track', icon: s('<rect x="7" y="7" width="12" height="8" fill="#dcdcdc"/><circle cx="10" cy="17.5" r="2" fill="#fff"/><circle cx="16" cy="17.5" r="2" fill="#fff"/><line x1="2" y1="20" x2="24" y2="20" stroke-dasharray="2 2"/>'), help: 'Click on a body to put it on a straight track through that point.' },
   ]],
   ['Springs', [
-    { tool: 'spring', key: 's', label: 'Linear spring', icon: s('<polyline points="2,13 6,13 8,8 11,18 14,8 17,18 20,13 24,13"/>'), help: 'Click two points to attach a spring (with optional damping).' },
+    { tool: 'spring', key: 's', label: 'Linear spring', icon: s('<path d="M2 13h3c1.5 0 1.5-5 3-5s.5 10 2.5 10S11 8 13 8s.5 10 2.5 10S16 8 18 8s1.5 5 3 5h3"/>'), help: 'Click two points to attach a spring (with optional damping).' },
     { tool: 'tspring', key: 'q', label: 'Torsional spring', icon: s('<path d="M13 13 m0 -2 a2 2 0 1 1 -2 2 a4 4 0 0 1 4 -4 a6 6 0 0 1 6 6 a8 8 0 0 1 -8 8"/><circle cx="13" cy="13" r="1.5" fill="#fff"/>'), help: 'Click a pin joint to add a torsional spring.' },
   ]],
   ['Ropes', [
@@ -79,7 +79,8 @@ export function buildPalette(root: HTMLElement, onPick: (t: Tool) => void): (t: 
     <div><kbd>Del</kbd> delete</div>
     <div><kbd>[</kbd> <kbd>]</kbd> rotate</div>
     <div><kbd>←↑→↓</kbd> nudge</div>
-    <div><kbd>⌘Z</kbd> undo</div>
+    <div><kbd>⌘Z</kbd> undo · <kbd>⌘D</kbd> duplicate</div>
+    <div><kbd>F</kbd> fit view</div>
     <div class="muted-line">Drag empty space to pan, scroll to zoom. Right-click leaves a tool.</div>`;
   root.appendChild(help);
   return (active: Tool) => {

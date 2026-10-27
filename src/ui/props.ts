@@ -6,6 +6,7 @@ import { groundEnds, groundFromEnds } from '../model/ground';
 import type { Attach, El, GroundEl, Scene } from '../model/types';
 import { App, CoordKey } from './app';
 import type { Editor } from './editor';
+import { liveRows } from './live';
 import { Renderer } from './render';
 
 type FieldKind = 'num' | 'deg' | 'bool' | 'text' | 'auto';
@@ -83,10 +84,30 @@ function setPath(o: any, path: string, value: any): void {
 const fmt = (v: number) => (Math.abs(v) < 1e-12 ? '0' : Number(v.toPrecision(6)).toString());
 
 export class PropsPanel {
+  private liveEl: HTMLElement | null = null;
+  private lastLive = 0;
+
   constructor(private app: App, private root: HTMLElement, private editor: Editor) {
     app.onSelection(() => this.render());
     app.onSceneChange(() => this.render());
+    app.onTick(() => this.updateLive());
+    app.onState(() => this.updateLive(true));
     this.render();
+  }
+
+  /** Refresh the live readout of the selected element (throttled while running). */
+  private updateLive(force = false): void {
+    const el = this.liveEl;
+    if (!el || !el.isConnected) return;
+    const now = performance.now();
+    if (!force && now - this.lastLive < 150) return;
+    this.lastLive = now;
+    const id = [...this.app.selection][0];
+    const e = this.scene.elements.find((x) => x.id === id);
+    const rows = e ? liveRows(this.app, e) : [];
+    el.hidden = !rows.length;
+    el.innerHTML = `<div class="props-section">Live · t = ${this.app.sim.t.toFixed(3)} s</div>
+      <div class="live-grid">${rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('')}</div>`;
   }
 
   private get scene(): Scene { return this.app.scene; }
@@ -216,6 +237,11 @@ export class PropsPanel {
     del.classList.add('danger');
     actions.appendChild(del);
     this.root.appendChild(actions);
+
+    this.liveEl = document.createElement('div');
+    this.liveEl.className = 'live';
+    this.root.appendChild(this.liveEl);
+    this.updateLive(true);
 
     const info = this.info(e);
     if (info) {

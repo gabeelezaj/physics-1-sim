@@ -5,6 +5,7 @@ import { RopeC } from '../engine/constraints';
 import type { PointForce } from '../engine/forces';
 import { System } from '../engine/system';
 import type { Attach, El, GroundEl, Scene, TSpringEl } from '../model/types';
+import { si } from './format';
 
 export interface Pose {
   x: number;
@@ -559,17 +560,23 @@ export class Renderer {
     ctx.strokeStyle = stroke;
     ctx.lineWidth = lw;
     const lead = Math.min(14, L * 0.15);
-    const coils = 9;
-    const amp = 6;
+    const coils = 8;
+    const amp = 7;
     const P = (s: number, t: number, o = 0) => [A[0] + ux * s + nx * (t + o), A[1] + uy * s + ny * (t + o)];
     ctx.beginPath();
     ctx.moveTo(A[0], A[1]);
     if (damper) { const p = P(lead * 0.5, 0, off); ctx.lineTo(p[0], p[1]); }
     let p = P(lead, 0, off);
     ctx.lineTo(p[0], p[1]);
+    // side view of a helical coil: a prolate cycloid s = vθ + d(cos θ − 1), t = amp·sin θ.
+    // With d > v each turn draws a small loop; a stretched spring smooths into a wave.
     const body = L - 2 * lead;
-    for (let i = 0; i < coils * 2; i++) {
-      p = P(lead + (body * (i + 0.5)) / (coils * 2), i % 2 ? -amp : amp, off);
+    const turns = coils * 2 * Math.PI;
+    const v = body / turns, d = amp * 0.55;
+    const steps = coils * 24;
+    for (let i = 1; i <= steps; i++) {
+      const th = (i / steps) * turns;
+      p = P(lead + v * th + d * (Math.cos(th) - 1), amp * Math.sin(th), off);
       ctx.lineTo(p[0], p[1]);
     }
     p = P(L - lead, 0, off);
@@ -684,7 +691,7 @@ export class Renderer {
         const ex = X + Math.cos(end) * r, ey = Y + Math.sin(end) * r;
         const tang = end + (ccw ? -Math.PI / 2 : Math.PI / 2);
         this.arrowHead(ex, ey, Math.cos(tang), Math.sin(tang));
-        ctx.fillText(`${Math.abs(f.torque).toPrecision(3)} N·m`, X + r + 4, Y - r);
+        ctx.fillText(si(Math.abs(f.torque), 'N·m'), X + r + 4, Y - r);
         continue;
       }
       const mag = Math.hypot(f.fx, f.fy);
@@ -697,7 +704,7 @@ export class Renderer {
       ctx.lineTo(X + ux * len, Y + uy * len);
       ctx.stroke();
       this.arrowHead(X + ux * len, Y + uy * len, ux, uy);
-      if (len > 28) ctx.fillText(`${mag.toPrecision(3)} N`, X + ux * len + 4, Y + uy * len - 4);
+      if (len > 28) ctx.fillText(si(mag, 'N'), X + ux * len + 4, Y + uy * len - 4);
     }
   }
 

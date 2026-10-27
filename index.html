@@ -12,6 +12,21 @@
         <span>Mechanism Sandbox</span>
       </div>
 
+      <div class="group menu-wrap">
+        <button id="btn-scene" aria-haspopup="menu" aria-expanded="false" title="New, open, save, presets">
+          Scene <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6" /></svg>
+        </button>
+        <div id="scene-menu" class="menu" role="menu" hidden>
+          <button data-act="new" role="menuitem">New empty scene</button>
+          <button data-act="open" role="menuitem">Open JSON…</button>
+          <button data-act="save" role="menuitem">Save as JSON</button>
+          <div class="menu-sep"></div>
+          <div class="menu-label">Presets</div>
+          <div id="menu-presets"></div>
+        </div>
+        <input id="file-input" type="file" accept="application/json,.json" hidden />
+      </div>
+
       <div class="group transport">
         <button id="btn-play" class="primary" title="Play / pause (Space)"></button>
         <button id="btn-step" class="icon" title="Step forward 10 ms">
@@ -41,7 +56,9 @@
         <button id="tg-snap" class="toggle" aria-pressed="true" title="Snap to grid, 15° angles and body features">Snap</button>
         <button id="tg-fbd" class="toggle" aria-pressed="false" title="Free body diagram: force arrows on every body">Forces</button>
         <button id="tg-labels" class="toggle" aria-pressed="true" title="Show element names">Labels</button>
-        <button id="btn-fit" title="Frame the whole scene">Fit</button>
+        <button id="btn-fit" class="icon" title="Frame the whole scene (F)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
+        </button>
       </div>
 
       <div class="group">
@@ -53,15 +70,6 @@
         </button>
       </div>
 
-      <div class="group">
-        <select id="preset-select" title="Load a preset scene">
-          <option value="">Presets…</option>
-        </select>
-        <button id="btn-new" title="Start an empty scene">New</button>
-        <button id="btn-save" title="Download the scene as JSON">Save</button>
-        <button id="btn-load" title="Open a scene JSON file">Open</button>
-        <input id="file-input" type="file" accept="application/json,.json" hidden />
-      </div>
     </header>
     <main>
       <aside id="palette"></aside>
@@ -82,6 +90,7 @@
           </ol>
         </div>
       </section>
+      <div id="side-resizer" title="Drag to resize"></div>
       <aside id="side">
         <section id="props" class="panel"></section>
         <section id="analysis" class="panel">

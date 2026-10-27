@@ -11,6 +11,7 @@ import {
 import { ptPos } from '../engine/kin';
 import { System } from '../engine/system';
 import { App } from './app';
+import { si } from './format';
 import { PALETTE, Plot } from './plots';
 
 const tex = (s: string, display = true) => katex.renderToString(s, { displayMode: display, throwOnError: false, strict: false });
@@ -318,39 +319,44 @@ export class AnalysisPanel {
     } catch { return; }
     const lam = sys.lambda;
     const name = (id: string) => this.app.scene.elements.find((e) => e.id === id.split(':')[0])?.name ?? id;
-    const rows: string[] = [];
+    const rows: [string, string, string][] = [];
     sys.cons.forEach((c, ci) => {
       const r0 = sys.rowStart[ci];
       if (c instanceof PinC) {
         const fx = lam[r0], fy = lam[r0 + 1];
-        rows.push(`<tr><td>${esc(name(c.el))}</td><td>${c.kind === 'axle' ? 'axle reaction' : 'pin reaction'}</td><td>R = (${f(fx)}, ${f(fy)}) N, |R| = ${f(Math.hypot(fx, fy))} N</td></tr>`);
+        rows.push([name(c.el), c.kind === 'axle' ? 'axle' : 'pin', `|R| = ${si(Math.hypot(fx, fy), 'N')} &nbsp;<span class="muted">(${si(fx, 'N')}, ${si(fy, 'N')})</span>`]);
       } else if (c instanceof RodC) {
-        rows.push(`<tr><td>${esc(name(c.el))}</td><td>rod</td><td>${lam[r0] < 0 ? 'tension' : 'compression'} ${f(Math.abs(lam[r0]))} N</td></tr>`);
+        rows.push([name(c.el), 'rod', `${lam[r0] <= 0 ? 'tension' : 'compression'} ${si(Math.abs(lam[r0]), 'N')}`]);
       } else if (c instanceof SliderC) {
-        let s = `normal N = ${f(lam[r0])} N`;
-        if (c.lockBody) s += `, moment M = ${f(lam[r0 + 1])} N·m`;
-        rows.push(`<tr><td>${esc(name(c.el))}</td><td>track</td><td>${s}</td></tr>`);
+        let s = `N = ${si(lam[r0], 'N')}`;
+        if (c.lockBody) s += `, M = ${si(lam[r0 + 1], 'N·m')}`;
+        rows.push([name(c.el), 'track', s]);
       } else if (c instanceof RopeC) {
         const T = sys.ropeTensions(ci);
-        rows.push(`<tr><td>${esc(name(c.el))}</td><td>rope</td><td>${T.map((t, j) => `T${j + 1} = ${f(t)} N`).join(', ')}${T.some((t) => t < -1e-9) ? ' <span class="err">(negative: a real rope would go slack)</span>' : ''}</td></tr>`);
+        const slack = T.some((t) => t < -1e-9) ? ' <span class="err">(negative: a real rope would go slack)</span>' : '';
+        rows.push([name(c.el), 'rope', T.map((t, j) => `T${j + 1} = ${si(t, 'N')}`).join(', ') + slack]);
       }
     });
     for (const fe of sys.forces) {
       if (fe instanceof SpringF) {
         const pa = ptPos(fe.a, q), pb = ptPos(fe.b, q);
         const L = Math.hypot(pb.x - pa.x, pb.y - pa.y);
-        const T = fe.k * (L - fe.L0);
-        rows.push(`<tr><td>${esc(fe.name)}</td><td>spring</td><td>ℓ = ${f(L)} m, k(ℓ − L₀) = ${f(T)} N${fe.c ? ' (+ damping)' : ''}</td></tr>`);
+        rows.push([fe.name, 'spring', `${si(fe.k * (L - fe.L0), 'N')} at ℓ = ${si(L, 'm')}${fe.c ? ' (+ damping)' : ''}`]);
       } else if (fe instanceof TSpringF) {
         const out: import('../engine/forces').PointForce[] = [];
         fe.report(q, qd, lam, out);
-        const tau = out[0]?.torque ?? 0;
-        rows.push(`<tr><td>${esc(fe.name)}</td><td>torsional</td><td>τ on A = ${f(tau)} N·m</td></tr>`);
+        rows.push([fe.name, 'torsional', `τ on A = ${si(out[0]?.torque ?? 0, 'N·m')}`]);
       }
     }
+    const lamRows: string[] = [];
+    sys.cons.forEach((c, ci) => {
+      c.labels.forEach((lb, r) => {
+        lamRows.push(`<tr><td>${tex(`\\lambda_{${sys.rowStart[ci] + r + 1}}`, false)}</td><td class="l">${esc(name(c.el))}${lb ? ` · ${esc(lb.replace(/\\/g, ''))}` : ''}</td><td>${num(lam[sys.rowStart[ci] + r])}</td></tr>`);
+      });
+    });
     root.innerHTML = `<div class="muted">Live at t = ${sim.t.toFixed(3)} s. Constraint forces are the Lagrange multipliers λ resolved per joint (Baumgarte terms excluded).</div>
-      <table class="data"><tr><th>element</th><th>type</th><th style="text-align:left">value</th></tr>${rows.map((r) => r.replace(/<td>(?!.*<td>)/, '<td class="l">')).join('')}</table>
-      <div class="section-title">Multipliers</div>
-      ${texBlock(`\\boldsymbol\\lambda = \\left[${Array.from(lam, (v) => num(v)).join(',\\ ')}\\right]^{\\mathsf T}`)}`;
+      <table class="data"><tr><th>element</th><th>type</th><th style="text-align:left">value</th></tr>${rows.map(([a, b, c]) => `<tr><td>${esc(a)}</td><td>${b}</td><td class="l">${c}</td></tr>`).join('')}</table>
+      <div class="section-title">Multipliers λ</div>
+      <table class="data"><tr><th></th><th style="text-align:left">constraint row</th><th>value</th></tr>${lamRows.join('')}</table>`;
   }
 }
