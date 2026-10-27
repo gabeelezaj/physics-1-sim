@@ -39,6 +39,8 @@ export class AnalysisPanel {
   private lastForces = 0;
   private modes: ModesResult | null = null;
   private modesStale = false;
+  /** Scene object the plot choices belong to (a new scene object = new problem). */
+  private sceneRef: unknown = null;
 
   constructor(private app: App) {
     document.querySelectorAll<HTMLButtonElement>('#analysis .tabs button').forEach((b) =>
@@ -48,12 +50,19 @@ export class AnalysisPanel {
     app.onTick(() => this.tick());
     app.onState(() => this.tick(true));
     app.onSceneChange(() => {
+      if (this.sceneRef !== app.scene) {
+        // a different scene was loaded (preset, file, new): start fresh
+        this.sceneRef = app.scene;
+        this.selected = [];
+        this.modes = null;
+      }
       this.modesStale = this.modes !== null;
       this.syncCoordChoices();
       this.renderModes();
       if (this.tab === 'equations') this.renderEquations();
       this.tick(true);
     });
+    this.sceneRef = app.scene;
     this.syncCoordChoices();
     this.renderModes();
     this.tick(true);

@@ -45,7 +45,7 @@ J q̈ = −J̇q̇ − 2α J q̇ − β² g(q)          (Baumgarte, α = β = 10 
 
 `M` is diagonal, so each evaluation solves the small system `(J M⁻¹ Jᵀ) λ = …` with rank-revealing full-pivot elimination, which keeps redundant constraints harmless. Integration is fixed-step RK4 (1 ms by default), run independently of the render frame rate.
 
-**Collisions:** bodies collide with ground pieces through a stiff penalty contact, f = max(0, kδ + c δ̇), with k = m·(300 rad/s)². The damping c comes from the restitution coefficient set in the scene settings. Rect corners, ground corners and circles (point masses, pulleys) are tested. Pairs joined directly by a pin or rod, and pairs that start overlapping, are skipped. Bodies do not collide with each other.
+**Collisions:** bodies collide with ground pieces and with each other through a stiff penalty contact, f = max(0, kδ + c δ̇), with k = m_eff·(300 rad/s)² (m_eff is the reduced mass for a pair). The damping c is calibrated numerically so that the restitution you set in the scene settings is what you get. Boxes are tested with points sampled along their outlines, so carts meeting face-to-face register. Circles (point masses, pulleys) are tested exactly. The force is equal and opposite on the two bodies, so momentum is conserved. Pairs joined directly by a pin or rod, bodies with *collides* unticked, and pairs that start overlapping are skipped. While anything is in contact, each 1 ms step is split into four RK4 substeps.
 
 **Ropes over pulleys:** the straight runs are common tangents (signed-radius formula). One holonomic row fixes the total length, Σℓ + Σrφ = L. One no-slip row per pulley says the rope material between pulleys is conserved, `u·(v(T₂) − v(T₁)) = 0`, with the tangent points treated as points on the pulleys. That couples pulley spin to rope motion, which is how pulley inertia enters the dynamics. `J̇q̇` for the rope rows is a central difference along q̇.
 
@@ -64,6 +64,7 @@ See [PLAN.md](PLAN.md) for the architecture and milestones.
 | Energy over 60 s (pendulum at 90°, chaotic double pendulum, springs, spring-loaded Atwood, all three presets) | drift < 0.1% of peak kinetic energy |
 | Presets | assemble cleanly, have a stable equilibrium and the expected number of DOFs |
 | Collisions | a tumbling bar lands and rests on the floor; a pendulum bar bounces off a wall (< 1 cm overlap); e = 1 conserves energy; e = 0.5 halves the rebound speed |
+| Cart collisions | equal carts with e = 1 swap velocities; unequal carts with e = 0.5 match v′ = ((m₁ − e m₂)v, (1 + e)m₁v)/(m₁ + m₂); momentum conserved to 1e-6; blocks stack; a ball bounces off a block |
 | Rope leaving / catching pulleys | a mass swung over a pulley releases the rope with no energy jump or wrap flip; a sweeping rope is caught by a pulley and spins it up |
 | Energy balance with dissipation | damped oscillator and bouncing bar: T + V + W stays equal to E₀ |
 
@@ -71,5 +72,5 @@ See [PLAN.md](PLAN.md) for the architecture and milestones.
 
 - Ropes are bilateral: they never go slack. The Forces tab flags any negative tension.
 - Friction on sliders is a regularized Coulomb law, μ|N| tanh(v / 1 mm/s), using N from the previous solve, so there is no true stiction.
-- Bodies collide only with ground pieces, not with each other. Contact is frictionless.
+- Contact is frictionless: blocks slide freely along floors and each other's faces.
 - A point mass has no rotational coordinate, so a torsional spring on its pin does nothing.
