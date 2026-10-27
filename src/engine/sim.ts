@@ -86,6 +86,9 @@ export class Simulation {
       qd[i] += (h / 6) * (k1v[i] + 2 * k2v[i] + 2 * k3v[i] + k4v[i]);
     }
     this.t += h;
+    // ropes leaving/catching pulleys; a catch is a plastic impulse, so book its loss
+    const keBefore = sys.kinetic(qd);
+    if (sys.postStep(q, qd)) this.dissipated += keBefore - sys.kinetic(qd);
     const ke = sys.kinetic(qd);
     if (ke > this.keMax) this.keMax = ke;
   }

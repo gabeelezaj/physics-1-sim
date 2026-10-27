@@ -96,6 +96,10 @@ export class System {
       }
     }
     if (this.scene.settings.contact !== false) this.compileContacts();
+    {
+      const { q } = this.initialState();
+      for (const c of this.cons) if (c instanceof RopeC) c.init(q);
+    }
     let r = 0;
     for (const c of this.cons) {
       this.rowStart.push(r);
@@ -397,9 +401,21 @@ export class System {
       const pinned = lockVel ? lockVel.has(k) : qd[k] !== 0;
       Wv[k] = this.invMass[k] * (pinned ? 1e-8 : 1);
     }
-    const all = holo.map(() => true);
-    const { J } = this.evalConstraints(q, zero, false);
-    this.buildA(J, Wv, A, all);
+    this.projectVelocity(q, qd, Wv);
+    return res;
+  }
+
+  /**
+   * Remove the velocity components that violate J q̇ = 0 with a W-weighted
+   * minimum-norm correction. With W = M⁻¹ this is a perfectly plastic
+   * impulse (used when a pulley catches a rope).
+   */
+  projectVelocity(q: ArrayLike<number>, qd: Float64Array, W: Float64Array = this.invMass): void {
+    const { n, m } = this;
+    if (m === 0) return;
+    const A = new Float64Array(m * m), rhs = new Float64Array(m), mu = new Float64Array(m);
+    const { J } = this.evalConstraints(q, new Float64Array(n), false);
+    this.buildA(J, W, A, Array(m).fill(true));
     for (let i = 0; i < m; i++) {
       let s = 0;
       for (let k = 0; k < n; k++) s += J[i * n + k] * qd[k];
@@ -408,9 +424,19 @@ export class System {
     solveFullPivotInPlace(A, rhs, m, mu, 1e-14);
     for (let i = 0; i < m; i++) {
       if (mu[i] === 0) continue;
-      for (let k = 0; k < n; k++) qd[k] -= Wv[k] * J[i * n + k] * mu[i];
+      for (let k = 0; k < n; k++) qd[k] -= W[k] * J[i * n + k] * mu[i];
     }
-    return res;
+  }
+
+  /**
+   * Discrete events after an accepted step (ropes leaving or catching
+   * pulleys). Returns true if the velocities were changed by an impulse.
+   */
+  postStep(q: ArrayLike<number>, qd: Float64Array): boolean {
+    let caught = false;
+    for (const c of this.cons) if (c instanceof RopeC && c.update(q)) caught = true;
+    if (caught) this.projectVelocity(q, qd);
+    return caught;
   }
 
   private buildA(J: Float64Array, W: Float64Array, A: Float64Array, use: boolean[]): void {
@@ -478,16 +504,17 @@ export class System {
   }
 
   /**
-   * Tension in each straight piece of a rope from the current λ. The total
-   * length row equals the sum of all piece rows, so piece j carries
-   * −(λ_L + λ_j) for j < np and −λ_L for the last piece.
+   * Tension in each straight piece of a rope's current path from λ. The
+   * total-length row equals the sum of all piece rows, so piece j carries
+   * −(λ_L + λ_j) (λ_j: no-slip row of the j-th engaged pulley) and the last
+   * piece −λ_L.
    */
   ropeTensions(ci: number): number[] {
-    const con = this.cons[ci];
+    const con = this.cons[ci] as RopeC;
     const r0 = this.rowStart[ci];
-    const np = con.rows - 1;
+    const act = con.activeRoute;
     const out: number[] = [];
-    for (let j = 0; j <= np; j++) out.push(-(this.lambda[r0] + (j < np ? this.lambda[r0 + 1 + j] : 0)));
+    for (let j = 0; j <= act.length; j++) out.push(-(this.lambda[r0] + (j < act.length ? this.lambda[r0 + 1 + act[j]] : 0)));
     return out;
   }
 
