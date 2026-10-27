@@ -83,6 +83,8 @@ export interface ContactSide {
    * foot): nothing can be pushed out through them.
    */
   buried?: boolean[];
+  /** Coulomb friction coefficient of a fixed piece's surface. */
+  mu?: number;
 }
 
 interface Prepared extends ContactSide {
@@ -118,6 +120,8 @@ interface Hit {
    * is exactly −∇(½kδ²) and the contact stays conservative.
    */
   s: number;
+  /** Friction coefficient at this contact (ground surfaces only). */
+  mu?: number;
 }
 
 function prepare(side: ContactSide): Prepared {
@@ -387,6 +391,7 @@ interface Seg {
   by: number;
   nx: number;
   ny: number;
+  mu: number;
 }
 
 /**
@@ -407,12 +412,19 @@ export class GroundContactF implements ForceEl {
   /** Ground outline samples that are on the union's boundary (not covered by another piece). */
   private exposed: boolean[][];
 
-  constructor(a: ContactSide, grounds: ContactSide[], private k: number, private c: number) {
+  private mus: number[];
+
+  /**
+   * `hStep` is the integration step while in contact; it sets how sharply
+   * friction may switch direction and still integrate stably.
+   */
+  constructor(a: ContactSide, grounds: ContactSide[], private k: number, private c: number, private hStep = 2.5e-4) {
     this.A = prepare(a);
     this.parts = grounds.map(partOf);
+    this.mus = grounds.map((g) => g.mu ?? 0);
     this.el = `${a.b?.id}:ground:contact`;
     const covered = (x: number, y: number, self: Part) => this.parts.some((o) => o !== self && insidePart(o, x, y, 1e-12));
-    for (const part of this.parts) {
+    this.parts.forEach((part, pi) => {
       const v = toWorldV(part);
       v.forEach((a, i) => {
         const b = v[(i + 1) % v.length];
@@ -436,11 +448,11 @@ export class GroundContactF implements ForceEl {
           if (covered(mx, my, part)) continue;
           this.segs.push({
             ax: a[0] + (b[0] - a[0]) * t0, ay: a[1] + (b[1] - a[1]) * t0,
-            bx: a[0] + (b[0] - a[0]) * t1, by: a[1] + (b[1] - a[1]) * t1, nx: n[0], ny: n[1],
+            bx: a[0] + (b[0] - a[0]) * t1, by: a[1] + (b[1] - a[1]) * t1, nx: n[0], ny: n[1], mu: this.mus[pi],
           });
         }
       });
-    }
+    });
     this.exposed = this.parts.map((part) => part.P.samples.map(([lx, ly]) => {
       const x = part.pose.x + part.pose.c * lx - part.pose.s * ly, y = part.pose.y + part.pose.s * lx + part.pose.c * ly;
       return !covered(x, y, part);
@@ -460,28 +472,26 @@ export class GroundContactF implements ForceEl {
     const near = this.parts.filter((p) => Math.hypot(pa.x - p.pose.x, pa.y - p.pose.y) < A.radius + p.P.radius);
     if (!near.length) return out;
     if (A.shape.kind === 'circle') {
-      for (const part of near) {
-        const h = circlePoly(part.P, part.pose, pa.x, pa.y, A.radius);
-        if (h) out.push(h);
-      }
+      // one contact against the union's boundary: smooth rolling over joints and curves
+      const r = A.radius;
+      const inside = near.some((part) => insidePart(part, pa.x, pa.y));
+      const c = this.closest(pa.x, pa.y);
+      if (!c) return out;
+      if (!inside && c.d >= r) return out;
+      const sgn = inside ? -1 : 1; // inside: push towards the boundary point
+      const nx = c.d > 1e-12 ? (sgn * (pa.x - c.x)) / c.d : c.nx, ny = c.d > 1e-12 ? (sgn * (pa.y - c.y)) / c.d : c.ny;
+      out.push({ px: c.x, py: c.y, nx, ny, depth: inside ? r + c.d : r - c.d, wt: 1, s: 1, mu: c.mu });
       return out;
     }
     // body outline points inside the ground: push towards the nearest exposed boundary point
     for (const [lx, ly, wt] of A.samples) {
       const px = pa.x + pa.c * lx - pa.s * ly, py = pa.y + pa.s * lx + pa.c * ly;
       if (!near.some((part) => insidePart(part, px, py))) continue;
-      let best = Infinity, qx = 0, qy = 0, fx = 0, fy = 1;
-      for (const g of this.segs) {
-        const ex = g.bx - g.ax, ey = g.by - g.ay;
-        const t = Math.max(0, Math.min(1, ((px - g.ax) * ex + (py - g.ay) * ey) / (ex * ex + ey * ey || 1)));
-        const cx = g.ax + t * ex, cy = g.ay + t * ey;
-        const d = Math.hypot(cx - px, cy - py);
-        if (d < best) { best = d; qx = cx; qy = cy; fx = g.nx; fy = g.ny; }
-      }
-      if (!Number.isFinite(best) || best <= 0) continue;
+      const c = this.closest(px, py);
+      if (!c || c.d <= 0) continue;
       // direction to the closest boundary point (the face normal if it is mid-face)
-      const nx = best > 1e-12 ? (qx - px) / best : fx, ny = best > 1e-12 ? (qy - py) / best : fy;
-      out.push({ px, py, nx, ny, depth: best, wt, s: 1 });
+      const nx = c.d > 1e-12 ? (c.x - px) / c.d : c.nx, ny = c.d > 1e-12 ? (c.y - py) / c.d : c.ny;
+      out.push({ px, py, nx, ny, depth: c.d, wt, s: 1, mu: c.mu });
     }
     // ground corners and edges poking into the body
     for (const part of near) {
@@ -491,10 +501,48 @@ export class GroundContactF implements ForceEl {
         const px = part.pose.x + part.pose.c * lx - part.pose.s * ly, py = part.pose.y + part.pose.s * lx + part.pose.c * ly;
         const own = part.P.sampleEdges[k].map((e) => part.wn[e]);
         const f = freePoint(A, pa, px, py, own);
-        if (f) out.push({ px, py, nx: -f.nx, ny: -f.ny, depth: f.depth, wt, s: f.s });
+        if (f) out.push({ px, py, nx: -f.nx, ny: -f.ny, depth: f.depth, wt, s: f.s, mu: this.mus[this.parts.indexOf(part)] });
       });
     }
     return out;
+  }
+
+  /** Nearest point on the union's exposed boundary. */
+  private closest(px: number, py: number): { x: number; y: number; d: number; nx: number; ny: number; mu: number } | null {
+    let best: { x: number; y: number; d: number; nx: number; ny: number; mu: number } | null = null;
+    for (const g of this.segs) {
+      const ex = g.bx - g.ax, ey = g.by - g.ay;
+      const t = Math.max(0, Math.min(1, ((px - g.ax) * ex + (py - g.ay) * ey) / (ex * ex + ey * ey || 1)));
+      const x = g.ax + t * ex, y = g.ay + t * ey;
+      const d = Math.hypot(x - px, y - py);
+      if (!best || d < best.d) best = { x, y, d, nx: g.nx, ny: g.ny, mu: g.mu };
+    }
+    return best;
+  }
+
+  /** Velocity of the body's material point at a contact. */
+  private pointVel(h: Hit, q: ArrayLike<number>, qd: ArrayLike<number>): V2 {
+    const b = this.A.b!;
+    const w = b.dof === 3 ? qd[b.idx + 2] : 0;
+    const rx = h.px - q[b.idx], ry = h.py - q[b.idx + 1];
+    return [qd[b.idx] - w * ry, qd[b.idx + 1] + w * rx];
+  }
+
+  /**
+   * Coulomb friction μN opposing the sliding velocity, regularized below a
+   * slip speed v_s = 4μN·h/m so the force never switches faster than the
+   * integrator can follow (a resting body creeps by at most a few mm/s).
+   */
+  private friction(h: Hit, fn: number, q: ArrayLike<number>, qd: ArrayLike<number>): V2 {
+    if (!h.mu || fn <= 0) return [0, 0];
+    const [vx, vy] = this.pointVel(h, q, qd);
+    const vn = vx * h.nx + vy * h.ny;
+    const tx = vx - vn * h.nx, ty = vy - vn * h.ny;
+    const vt = Math.hypot(tx, ty);
+    if (vt < 1e-12) return [0, 0];
+    const vs = (4 * h.mu * fn * this.hStep) / this.A.b!.m;
+    const f = (h.mu * fn) / Math.sqrt(vt * vt + vs * vs);
+    return [-f * tx, -f * ty];
   }
 
   private rate(h: Hit, q: ArrayLike<number>, qd: ArrayLike<number>): number {
@@ -513,7 +561,9 @@ export class GroundContactF implements ForceEl {
     const b = this.A.b!;
     for (const h of this.hits(q)) {
       const f = this.forceOf(h, q, qd);
-      if (f > 0) addPtForce(F, b, h.px - q[b.idx], h.py - q[b.idx + 1], f * h.s * h.nx, f * h.s * h.ny);
+      if (f <= 0) continue;
+      const [ffx, ffy] = this.friction(h, f * h.s, q, qd);
+      addPtForce(F, b, h.px - q[b.idx], h.py - q[b.idx + 1], f * h.s * h.nx + ffx, f * h.s * h.ny + ffy);
     }
   }
 
@@ -525,7 +575,15 @@ export class GroundContactF implements ForceEl {
 
   power(q: ArrayLike<number>, qd: ArrayLike<number>): number {
     let p = 0;
-    for (const h of this.hits(q)) p -= (this.forceOf(h, q, qd) - h.wt * this.k * h.depth) * this.rate(h, q, qd);
+    for (const h of this.hits(q)) {
+      const f = this.forceOf(h, q, qd);
+      p -= (f - h.wt * this.k * h.depth) * this.rate(h, q, qd);
+      if (f > 0 && h.mu) {
+        const [ffx, ffy] = this.friction(h, f * h.s, q, qd);
+        const [vx, vy] = this.pointVel(h, q, qd);
+        p += ffx * vx + ffy * vy;
+      }
+    }
     return p;
   }
 
@@ -533,7 +591,10 @@ export class GroundContactF implements ForceEl {
     const b = this.A.b!;
     for (const h of this.hits(q)) {
       const f = this.forceOf(h, q, qd);
-      if (f > 0) out.push({ body: b, x: h.px, y: h.py, fx: f * h.s * h.nx, fy: f * h.s * h.ny, label: 'ground contact', kind: 'contact' });
+      if (f <= 0) continue;
+      out.push({ body: b, x: h.px, y: h.py, fx: f * h.s * h.nx, fy: f * h.s * h.ny, label: 'ground contact', kind: 'contact' });
+      const [ffx, ffy] = this.friction(h, f * h.s, q, qd);
+      if (ffx || ffy) out.push({ body: b, x: h.px, y: h.py, fx: ffx, fy: ffy, label: 'friction', kind: 'friction' });
     }
   }
 

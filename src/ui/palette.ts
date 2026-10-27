@@ -1,7 +1,7 @@
 // Element palette: textbook-style icons, click to arm a tool or drag onto the canvas.
 
 export type Tool =
-  | 'select' | 'ground' | 'ramp' | 'point' | 'rect' | 'pulley'
+  | 'select' | 'ground' | 'ramp' | 'curve' | 'point' | 'rect' | 'pulley' | 'wheel' | 'force'
   | 'pin' | 'rod' | 'slider' | 'spring' | 'tspring' | 'rope';
 
 interface Item {
@@ -25,14 +25,19 @@ const GROUPS: [string, Item[]][] = [
   ['Bodies', [
     { tool: 'ground', key: 'g', label: 'Ground', icon: s(`<line x1="3" y1="12" x2="23" y2="12" stroke-width="2"/>${hatch(3, 12, 20)}`), help: 'Click two points to draw a floor, wall or ceiling between them.' },
     { tool: 'ramp', key: 'w', label: 'Ramp / wedge', icon: s(`<path d="M3 20 L23 20 L23 7 Z" fill="#f3f4f6"/><line x1="3" y1="20" x2="23" y2="7" stroke-width="2"/>`), help: 'Click the bottom then the top of the slope to draw an incline. Tick "movable" to make it a sliding wedge.' },
+    { tool: 'curve', key: 'u', label: 'Curved ramp', icon: s(`<path d="M3 20 L23 20 L23 5 Q23 20 3 20 Z" fill="#f3f4f6"/><path d="M3 20 Q23 20 23 5" stroke-width="2"/>`), help: 'Click the bottom then the top: a quarter-pipe curving from flat to steep. Switch it to a hump in its properties.' },
     { tool: 'point', key: 'm', label: 'Point mass', icon: s('<circle cx="13" cy="13" r="6" fill="#c4c4c4"/>'), help: 'Click to place a point mass.' },
     { tool: 'rect', key: 'b', label: 'Rigid body', icon: s('<rect x="4" y="9" width="18" height="9" fill="#dcdcdc"/><circle cx="13" cy="13.5" r="2" fill="#111"/>'), help: 'Click to place a rectangular rigid body (bar, cart, block).' },
+    { tool: 'wheel', key: 'o', label: 'Wheel / ball', icon: s('<circle cx="13" cy="13" r="8" fill="#dcdcdc"/><circle cx="13" cy="13" r="1.6" fill="#111"/><line x1="13" y1="13" x2="13" y2="5"/>'), help: 'Click to place a free rolling disc. Give the ground some friction μ and it rolls instead of sliding.' },
     { tool: 'pulley', key: 'p', label: 'Pulley', icon: s('<circle cx="13" cy="14" r="7.5" fill="#dcdcdc"/><circle cx="13" cy="14" r="1.6" fill="#fff"/><line x1="13" y1="2" x2="13" y2="12"/>'), help: 'Click to place a pulley (fixed axle by default).' },
   ]],
   ['Joints', [
     { tool: 'pin', key: 'j', label: 'Pin joint', icon: s('<path d="M13 9 L7 19 L19 19 Z" fill="#fff"/><circle cx="13" cy="9" r="2.6" fill="#fff"/>'), help: 'Click a body: it is pinned to the body beneath, or to the ground.' },
     { tool: 'rod', key: 'l', label: 'Massless rod', icon: s('<line x1="5" y1="20" x2="21" y2="6" stroke-width="3"/><circle cx="5" cy="20" r="1.8" fill="#111"/><circle cx="21" cy="6" r="1.8" fill="#111"/>'), help: 'Click two points to connect them with a rigid massless rod.' },
     { tool: 'slider', key: 't', label: 'Slider / track', icon: s('<rect x="7" y="7" width="12" height="8" fill="#dcdcdc"/><circle cx="10" cy="17.5" r="2" fill="#fff"/><circle cx="16" cy="17.5" r="2" fill="#fff"/><line x1="2" y1="20" x2="24" y2="20" stroke-dasharray="2 2"/>'), help: 'Click on a body to put it on a straight track through that point.' },
+  ]],
+  ['Loads', [
+    { tool: 'force', key: 'a', label: 'Applied force', icon: s('<rect x="13" y="8" width="10" height="10" fill="#dcdcdc"/><line x1="2" y1="13" x2="11" y2="13" stroke="#9f1239" stroke-width="2"/><path d="M13 13 L9 10.5 L9 15.5 Z" fill="#9f1239" stroke="#9f1239"/>'), help: 'Click a body to apply a constant force (and/or torque). Set its components in the properties panel.' },
   ]],
   ['Springs', [
     { tool: 'spring', key: 's', label: 'Linear spring', icon: s('<path d="M2 13h3c1.5 0 1.5-5 3-5s.5 10 2.5 10S11 8 13 8s.5 10 2.5 10S16 8 18 8s1.5 5 3 5h3"/>'), help: 'Click two points to attach a spring (with optional damping).' },

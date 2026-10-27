@@ -2,7 +2,7 @@
 
 import { RopeC } from './engine/constraints';
 import { System } from './engine/system';
-import { at, ground, pin, point, pulley, rect, rod, rope, slider, spring, tspring } from './model/factory';
+import { at, force, ground, pin, point, pulley, rect, rod, rope, slider, spring, tspring } from './model/factory';
 import { rampFromSlope } from './model/shapes';
 import { emptyScene, type Attach, type GroundEl, type RectEl, type Scene } from './model/types';
 
@@ -185,10 +185,34 @@ export function blockOnSlidingWedge(): Scene {
   return s;
 }
 
+/**
+ * (6) Skate park: a rough floor between a quarter-pipe and a hump. A wheel
+ * rolls into the quarter-pipe and back; a block is pushed along by a constant
+ * force until it meets the hump.
+ */
+export function skatePark(): Scene {
+  const s = emptyScene();
+  s.title = 'Skate park';
+  s.settings.restitution = 0.3;
+  const mu = 0.4;
+  const floor = ground('G1', 0, -0.06, { w: 5, h: 0.12, mu });
+  const pipe = ground('G2', 1.9, 0.6, { shape: 'curve', profile: 'concave', w: 1.2, h: 1.2, mu });
+  // two convex quarters meeting at the top make a hump
+  const hump = ground('G3', -1.1, 0.2, { shape: 'curve', profile: 'convex', w: 0.6, h: 0.4, mu });
+  const hump2 = ground('G4', -0.5, 0.2, { shape: 'curve', profile: 'convex', w: 0.6, h: 0.4, mu, flip: true });
+  const wallL = ground('G5', -2.56, 0.6, { theta: -Math.PI / 2, w: 1.3, h: 0.12 });
+  const wheel = pulley('D1', 0.3, 0.15, 1, 0.15, { fixedAxle: false, vx: 3, omega: -20 });
+  const block = rect('B1', -2.1, 0.1, 1, 0.3, 0.2);
+  const push = force('F1', at(block.id, -0.15, 0), 6, 0);
+  s.elements.push(floor, pipe, hump, hump2, wallL, wheel, block, push);
+  return s;
+}
+
 export const PRESETS: Preset[] = [
   { id: 'cart-bars', title: '1 · Cart with two tilted bars', build: cartWithTwoBars, modal: true },
   { id: 'pendulum-pulleys', title: '2 · Pendulum + masses over pulleys', build: pendulumAndPulleys, modal: true },
   { id: 'central-side', title: '3 · Central mass + side pendulums', build: centralMassWithSidePendulums, modal: true },
   { id: 'colliding-carts', title: '4 · Colliding carts', build: collidingCarts },
   { id: 'sliding-wedge', title: '5 · Block on a sliding wedge', build: blockOnSlidingWedge },
+  { id: 'skate-park', title: '6 · Skate park (curves, friction, rolling)', build: skatePark },
 ];

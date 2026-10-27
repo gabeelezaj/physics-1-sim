@@ -15,7 +15,7 @@ export interface PointForce {
   /** Pure torque (for torsional springs); fx = fy = 0 then. */
   torque?: number;
   label: string;
-  kind: 'gravity' | 'spring' | 'tspring' | 'friction' | 'constraint' | 'contact';
+  kind: 'gravity' | 'spring' | 'tspring' | 'friction' | 'constraint' | 'contact' | 'applied';
 }
 
 export interface ForceEl {
@@ -144,5 +144,28 @@ export class FrictionF implements ForceEl {
     if (this.mu === 0 || !this.a.b) return;
     const r = this.force(q, qd, lambda);
     out.push({ body: this.a.b, x: r.p.x, y: r.p.y, fx: r.fx, fy: r.fy, label: `${this.name} friction`, kind: 'friction' });
+  }
+}
+
+/**
+ * Constant applied load: a force of fixed world direction at a body point
+ * plus a torque. Both are conservative: V = −F·p − τθ.
+ */
+export class AppliedF implements ForceEl {
+  constructor(public el: string, public name: string, public a: APt, public fx: number, public fy: number, public torque: number) {}
+  apply(q: ArrayLike<number>, _qd: ArrayLike<number>, F: Float64Array): void {
+    const p = ptPos(this.a, q);
+    addPtForce(F, this.a.b, p.rx, p.ry, this.fx, this.fy);
+    if (this.a.b && this.a.b.dof === 3) F[this.a.b.idx + 2] += this.torque;
+  }
+  energy(q: ArrayLike<number>): number {
+    const p = ptPos(this.a, q);
+    return -(this.fx * p.x + this.fy * p.y) - this.torque * angleOf(this.a, q);
+  }
+  report(q: ArrayLike<number>, _qd: ArrayLike<number>, _l: ArrayLike<number>, out: PointForce[]): void {
+    if (!this.a.b) return;
+    const p = ptPos(this.a, q);
+    if (this.fx || this.fy) out.push({ body: this.a.b, x: p.x, y: p.y, fx: this.fx, fy: this.fy, label: this.name, kind: 'applied' });
+    if (this.torque && this.a.b.dof === 3) out.push({ body: this.a.b, x: q[this.a.b.idx], y: q[this.a.b.idx + 1], fx: 0, fy: 0, torque: this.torque, label: this.name, kind: 'applied' });
   }
 }

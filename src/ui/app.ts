@@ -76,6 +76,11 @@ export class App {
   selection = new Set<string>();
   hover: string | null = null;
   showFBD = false;
+  showTrails = false;
+  showVelocity = false;
+  /** Recent body positions (flat x, y) for motion trails. */
+  trails = new Map<string, number[]>();
+  private lastTrailT = -Infinity;
   showLabels = true;
   snap = true;
   modeAnim: ModeAnim | null = null;
@@ -149,6 +154,7 @@ export class App {
     this.modeAnim = null;
     this.displayQ = null;
     this.recorder.reset(this.sim);
+    this.clearTrails();
     this.persist();
     for (const id of [...this.selection]) if (!this.scene.elements.some((e) => e.id === id)) this.selection.delete(id);
     this.emit(this.sceneListeners);
@@ -228,7 +234,24 @@ export class App {
 
   toggle(): void { this.running ? this.pause() : this.play(); }
 
+  clearTrails(): void {
+    this.trails.clear();
+    this.lastTrailT = -Infinity;
+  }
+
+  private recordTrails(): void {
+    if (this.sim.t - this.lastTrailT < 1 / 60) return;
+    this.lastTrailT = this.sim.t;
+    for (const b of this.sys.bodies) {
+      let t = this.trails.get(b.id);
+      if (!t) this.trails.set(b.id, (t = []));
+      t.push(this.sim.q[b.idx], this.sim.q[b.idx + 1]);
+      if (t.length > 1200) t.splice(0, t.length - 1200); // last ~10 s
+    }
+  }
+
   reset(): void {
+    this.clearTrails();
     this.sim = new Simulation(this.scene, { assemble: false });
     this.running = false;
     this.modeAnim = null;
@@ -241,7 +264,7 @@ export class App {
   step(duration = 0.01): void {
     if (this.modeAnim) this.stopModeAnim();
     this.running = false;
-    this.sim.run(duration, (s) => this.recorder.sample(s));
+    this.sim.run(duration, (s) => { this.recorder.sample(s); this.recordTrails(); });
     this.emit(this.stateListeners);
     this.emit(this.tickListeners);
   }
@@ -303,6 +326,7 @@ export class App {
         this.warnings = ['Simulation diverged (non-finite state). Reset and check the parameters.'];
         this.emit(this.sceneListeners);
       }
+      this.recordTrails();
       this.emit(this.tickListeners);
       this.needsDraw = true;
     }
@@ -337,6 +361,8 @@ export class App {
       labels: this.showLabels,
       grid: true,
       forces,
+      trails: this.showTrails && !this.modeAnim ? this.trails : null,
+      velocities: this.showVelocity && !this.modeAnim ? this.sim.qd : null,
       preview: null,
       cursor: null,
       ...overlay,

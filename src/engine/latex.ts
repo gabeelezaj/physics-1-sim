@@ -4,7 +4,7 @@
 import type { Mat } from '../math/linalg';
 import type { Linearization } from './analysis';
 import { PinC, RodC, RopeC, SliderC } from './constraints';
-import { FrictionF, SpringF, TSpringF } from './forces';
+import { AppliedF, FrictionF, SpringF, TSpringF } from './forces';
 import type { APt } from './kin';
 import { System } from './system';
 
@@ -121,6 +121,13 @@ export function forceTex(sys: System): TexLine[] {
       const rel = sub(sub(ta, tb), num(f.theta0));
       const damp = f.c ? ` - ${num(f.c)}\\,\\dot\\Delta` : '';
       out.push({ label: `${f.name} (torsional)`, tex: `\\tau = -${num(f.k)}\\,\\Delta${damp},\\quad \\Delta = ${rel},\\quad V = \\tfrac12\\,${num(f.k)}\\,\\Delta^2` });
+    } else if (f instanceof AppliedF) {
+      const X = pointExpr(sys, f.a, 0), Y = pointExpr(sys, f.a, 1);
+      const parts: string[] = [];
+      if (f.fx || f.fy) parts.push(`\\mathbf F = (${num(f.fx)},\\ ${num(f.fy)})\\ \\mathrm{N}`);
+      if (f.torque) parts.push(`\\tau = ${num(f.torque)}\\ \\mathrm{N\\,m}`);
+      const pot = [f.fx ? `${num(-f.fx)}\\,${paren(X)}` : '', f.fy ? `${num(-f.fy)}\\,${paren(Y)}` : '', f.torque && f.a.b ? `${num(-f.torque)}\\,${coordTex(sys, f.a.b, 'theta')}` : ''].filter(Boolean).join(' + ');
+      out.push({ label: `${f.name} (applied load)`, tex: `${parts.join(',\\quad ')},\\quad V = ${pot || '0'}` });
     } else if (f instanceof FrictionF) {
       out.push({ label: `${f.name} (friction)`, tex: `F_f = -${num(f.mu)}\\,|N|\\,\\tanh(v_t/10^{-3})` });
     }

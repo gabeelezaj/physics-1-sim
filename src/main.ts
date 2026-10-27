@@ -70,6 +70,8 @@ const syncContact = bindToggle('tg-contact', () => app.scene.settings.contact !=
 bindToggle('tg-snap', () => app.snap, (v) => (app.snap = v));
 bindToggle('tg-fbd', () => app.showFBD, (v) => (app.showFBD = v));
 bindToggle('tg-labels', () => app.showLabels, (v) => (app.showLabels = v));
+bindToggle('tg-trails', () => app.showTrails, (v) => (app.showTrails = v));
+bindToggle('tg-vel', () => app.showVelocity, (v) => (app.showVelocity = v));
 gVal.addEventListener('change', () => {
   const g = Number(gVal.value);
   if (Number.isFinite(g)) app.commit((s) => (s.gravity.g = g));

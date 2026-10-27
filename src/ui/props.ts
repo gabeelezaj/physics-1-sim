@@ -67,11 +67,16 @@ const FIELDS: Record<El['kind'], Field[]> = {
     { key: 'c', label: 'damping c_t', unit: 'N·m·s', step: 0.05, min: 0 },
   ],
   rope: [{ key: 'length', label: 'length', unit: 'm', step: 0.05, min: 1e-3 }],
+  force: [
+    { key: 'fx', label: 'Fx', unit: 'N', step: 1 }, { key: 'fy', label: 'Fy', unit: 'N', step: 1 },
+    { key: 'torque', label: 'torque τ', unit: 'N·m', step: 0.5 },
+  ],
 };
 
 const KIND_LABEL: Record<El['kind'], string> = {
   ground: 'Ground', point: 'Point mass', rect: 'Rigid body', pulley: 'Pulley', rod: 'Massless rod',
   pin: 'Pin joint', slider: 'Slider / track', spring: 'Linear spring', tspring: 'Torsional spring', rope: 'Rope',
+  force: 'Applied load',
 };
 
 function getPath(o: any, path: string): any {
@@ -169,7 +174,10 @@ export class PropsPanel {
     this.root.appendChild(h);
 
     if (e.kind === 'ground') {
-      if (e.shape === 'wedge') this.renderRamp(e); else this.renderGround(e);
+      if (e.shape === 'wedge') this.renderRamp(e);
+      else if (e.shape === 'curve') this.renderCurve(e);
+      else this.renderGround(e);
+      this.renderFriction(e);
     }
     if (e.kind === 'rect' && e.shape === 'wedge') this.renderRamp(e);
     const own = e.kind === 'rect' && e.shape === 'wedge' ? FIELDS.rect.filter((f) => f.key !== 'w' && f.key !== 'h') : FIELDS[e.kind];
@@ -303,6 +311,37 @@ export class PropsPanel {
     this.root.appendChild(grid);
   }
 
+  /** Curved ramp: size, direction, quarter-pipe or hump. */
+  private renderCurve(g: GroundEl): void {
+    const head = document.createElement('div');
+    head.className = 'props-section';
+    head.textContent = 'Curved ramp (fixed)';
+    this.root.appendChild(head);
+    const grid = document.createElement('div');
+    grid.className = 'fields';
+    const set = (patch: Partial<GroundEl>) => this.app.commit((s) => Object.assign(s.elements.find((x) => x.id === g.id) as GroundEl, patch));
+    grid.append(
+      this.input('base', 'num', g.w, (v) => set({ w: Math.max(0.05, Number(v)) }), { unit: 'm', step: 0.05, key: 'cW' }),
+      this.input('height', 'num', g.h, (v) => set({ h: Math.max(0.05, Number(v)) }), { unit: 'm', step: 0.05, key: 'cH' }),
+      this.input('rises to the left', 'bool', !!g.flip, (v) => set({ flip: !!v }), { key: 'cFlip' }),
+      this.input('hump (convex)', 'bool', g.profile === 'convex', (v) => set({ profile: v ? 'convex' : 'concave' }), { key: 'cProfile' }),
+      this.input('x (centre)', 'num', g.x, (v) => set({ x: Number(v) }), { unit: 'm', step: 0.05, key: 'cX' }),
+      this.input('y (centre)', 'num', g.y, (v) => set({ y: Number(v) }), { unit: 'm', step: 0.05, key: 'cY' }),
+    );
+    this.root.appendChild(grid);
+  }
+
+  /** Surface friction of any ground piece. */
+  private renderFriction(g: GroundEl): void {
+    const grid = document.createElement('div');
+    grid.className = 'fields';
+    grid.style.marginTop = '8px';
+    grid.append(this.input('friction μ', 'num', g.mu ?? 0, (v) => this.app.commit((s) => {
+      (s.elements.find((x) => x.id === g.id) as GroundEl).mu = Math.max(0, Number(v));
+    }), { step: 0.05, key: 'gMu' }));
+    this.root.appendChild(grid);
+  }
+
   /** Ground pieces are edited by their surface end points. */
   private renderGround(g: GroundEl): void {
     const ends = groundEnds(g);
@@ -352,12 +391,15 @@ export class PropsPanel {
       case 'rect': return e.shape === 'wedge'
         ? 'A movable wedge (uniform right triangle, I = m(b² + h²)/18 about its centroid). Its position is its centre of mass. Untick “movable” to fix it in place.'
         : 'Angles are measured counter-clockwise from the body\'s long axis. Leave I blank for a uniform plate, m(L²+h²)/12. Bodies joined directly by a pin or rod never collide with each other.';
-      case 'pulley': return 'Leave I blank for a uniform disc, ½mr². The rope does not slip, so the pulley\'s inertia enters the dynamics.';
+      case 'pulley': return e.fixedAxle ? 'Leave I blank for a uniform disc, ½mr². The rope does not slip, so the pulley\'s inertia enters the dynamics.' : 'A free disc (wheel or ball). On a ground piece with friction μ > 0 it rolls; on a frictionless one it slides without turning.';
       case 'slider': return 'The attachment point stays on a fixed straight track. With rotation locked the body translates only (a cart).';
       case 'tspring': return 'Torque −k_t(θ_A − θ_B − θ₀) on body A of the pin, opposite on body B.';
       case 'pin': return 'Revolute joint: the two attachment points coincide. Add a torsional spring with the palette tool.';
       case 'rope': return 'Inextensible, always taut (bilateral). Wrap direction per pulley: CCW = rope travels counter-clockwise around it.';
-      case 'ground': return e.shape === 'wedge'
+      case 'force': return 'A constant force in a fixed world direction, pushing on the marked point, plus an optional torque on the body (counter-clockwise positive). Both are conservative: V = −F·r − τθ.';
+      case 'ground': return e.shape === 'curve'
+        ? 'A fixed curved surface built from thin slices. With μ = 0 things slide; give it friction so wheels and balls roll.'
+        : e.shape === 'wedge'
         ? 'A fixed, frictionless incline: blocks and balls slide down it at g sin θ. Tick “movable” to turn it into a wedge that slides on the floor when something rides it.'
         : 'Fixed and solid: bodies bounce off it. The hatched side is the inside. Drag the square handles on the canvas to move either end.';
       default: return '';

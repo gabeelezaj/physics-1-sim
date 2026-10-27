@@ -4,7 +4,7 @@ import { RopeC } from '../engine/constraints';
 import { autoWrapDir, ropeGeometry } from '../engine/rope';
 import * as F from '../model/factory';
 import { defaultSide, groundEnds, groundFromEnds, snapSegment } from '../model/ground';
-import { insidePolygon, localPolygon, rampFromSlope, snapPoints } from '../model/shapes';
+import { insideOutline, localPolygon, rampFromSlope, snapPoints } from '../model/shapes';
 import type { Attach, El, GroundEl, PinEl, RopeRoute, Scene } from '../model/types';
 import { App } from './app';
 import { TOOL_KEYS, Tool, TOOL_HELP, TOOL_LABEL, buildPalette } from './palette';
@@ -13,7 +13,7 @@ import { Renderer } from './render';
 type V = [number, number];
 
 interface Pending {
-  tool: 'rod' | 'spring' | 'rope' | 'ground' | 'ramp';
+  tool: 'rod' | 'spring' | 'rope' | 'ground' | 'ramp' | 'curve';
   a: Attach;
   aWorld: V;
   route: string[];
@@ -81,10 +81,10 @@ export class Editor {
       }
       return out;
     }
-    if (this.tool === 'ramp') {
+    if (this.tool === 'ramp' || this.tool === 'curve') {
       if (pend) {
         const b = this.slopeEnd(pend.aWorld, cur);
-        const ramp = this.makeRamp(pend.aWorld, b);
+        const ramp = this.tool === 'curve' ? this.makeCurve(pend.aWorld, b) : this.makeRamp(pend.aWorld, b);
         if (ramp) out.ghosts = [ramp];
         out.measure = { p: b, text: this.slopeText(pend.aWorld, b) };
       } else {
@@ -92,8 +92,13 @@ export class Editor {
       }
       return out;
     }
-    if (this.tool === 'point' || this.tool === 'rect' || this.tool === 'pulley') {
+    if (this.tool === 'point' || this.tool === 'rect' || this.tool === 'pulley' || this.tool === 'wheel') {
       out.ghosts = [this.makeBody(this.tool, this.snapV(cur))];
+      return out;
+    }
+    if (this.tool === 'force') {
+      const body = this.bodyAt(cur, false);
+      if (body) { const t = this.attachAt(cur); out.marker = { p: t.world, label: `push ${t.label}` }; }
       return out;
     }
     if (this.tool === 'tspring') {
@@ -149,6 +154,16 @@ export class Editor {
     return `slope ${Math.round(ang)}° · ${dist(a, b).toFixed(2)} m`;
   }
 
+  /** Quarter-pipe filling the box between the two clicks, rising towards the higher one. */
+  private makeCurve(a: V, b: V): GroundEl | null {
+    const [lo, hi] = a[1] <= b[1] ? [a, b] : [b, a];
+    const w = Math.abs(hi[0] - lo[0]), h = hi[1] - lo[1];
+    if (w < 0.05 || h < 0.05) return null;
+    return F.ground(F.nextName(this.scene, 'ground'), (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, {
+      shape: 'curve', profile: 'concave', w, h, flip: hi[0] < lo[0],
+    });
+  }
+
   private makeRamp(a: V, b: V): GroundEl | null {
     const r = rampFromSlope(a, b);
     if (!r) return null;
@@ -174,9 +189,10 @@ export class Editor {
     return g;
   }
 
-  private makeBody(tool: 'point' | 'rect' | 'pulley', p: V): El {
+  private makeBody(tool: 'point' | 'rect' | 'pulley' | 'wheel', p: V): El {
     if (tool === 'point') return F.point(F.nextName(this.scene, 'point'), p[0], p[1], 1);
     if (tool === 'rect') return F.rect(F.nextName(this.scene, 'rect'), p[0], p[1], 2, 0.6, 0.2);
+    if (tool === 'wheel') return F.pulley(F.nextName(this.scene, 'pulley', 'D'), p[0], p[1], 1, 0.1, { fixedAxle: false });
     return F.pulley(F.nextName(this.scene, 'pulley'), p[0], p[1], 1, 0.12);
   }
 
@@ -220,7 +236,7 @@ export class Editor {
       if (this.tool === 'ground') {
         html = p ? `${name} · step 2/2 · click the other end (snaps to 15°, hold <kbd>Shift</kbd> for free angle) · ${esc}`
           : `${name} · step 1/2 · click where the surface starts · ${esc}`;
-      } else if (this.tool === 'ramp') {
+      } else if (this.tool === 'ramp' || this.tool === 'curve') {
         html = p ? `${name} · step 2/2 · click the top of the slope (snaps to 5°, hold <kbd>Shift</kbd> for free angle) · ${esc}`
           : `${name} · step 1/2 · click the bottom of the slope · ${esc}`;
       } else if (this.tool === 'rope') {
@@ -268,12 +284,12 @@ export class Editor {
     for (let i = els.length - 1; i >= 0; i--) {
       const e = els[i];
       if (e.kind === 'pulley' && dist(p, this.poseXY(e.id)) <= e.r + tol) return e;
-      if (e.kind === 'rect' && insidePolygon(localPolygon(e), this.toLocal(e.id, p), tol)) return e;
+      if (e.kind === 'rect' && insideOutline(e, this.toLocal(e.id, p), tol)) return e;
     }
     if (includeGround) {
       for (let i = els.length - 1; i >= 0; i--) {
         const e = els[i];
-        if (e.kind === 'ground' && insidePolygon(localPolygon(e), this.toLocal(e.id, p), tol)) return e;
+        if (e.kind === 'ground' && insideOutline(e, this.toLocal(e.id, p), tol)) return e;
       }
     }
     return null;
@@ -301,11 +317,11 @@ export class Editor {
     }
     let local = this.toLocal(body.id, p);
     let feature = '';
-    if ((body.kind === 'rect' || (body.kind === 'ground' && body.shape === 'wedge')) && this.app.snap) {
+    if ((body.kind === 'rect' || (body.kind === 'ground' && (body.shape === 'wedge' || body.shape === 'curve'))) && this.app.snap) {
       // snap to corners, edge midpoints, quarter points and the centre
       const cands = snapPoints(localPolygon(body));
       cands.push({ p: [0, 0], label: 'centre' });
-      if (body.shape !== 'wedge') {
+      if (body.shape !== 'wedge' && body.shape !== 'curve') {
         cands.push({ p: [-body.w / 2, 0], label: 'end' }, { p: [body.w / 2, 0], label: 'end' });
       }
       let best = this.pxToWorld(10), pick: V | null = null;
@@ -333,6 +349,13 @@ export class Editor {
     for (let i = els.length - 1; i >= 0; i--) {
       const e = els[i];
       if (e.kind === 'pin' && dist(p, aw(e.a)) < tol) return e.id;
+      if (e.kind === 'force') {
+        // the arrow is drawn 46 px long ending at the point
+        const head = aw(e.a), F = Math.hypot(e.fx, e.fy);
+        const L = this.pxToWorld(46);
+        const tail: V = F > 0 ? [head[0] - (e.fx / F) * L, head[1] - (e.fy / F) * L] : head;
+        if (segDist(p, tail, head) < tol) return e.id;
+      }
     }
     for (let i = els.length - 1; i >= 0; i--) {
       const e = els[i];
@@ -398,14 +421,23 @@ export class Editor {
         add(this.makeGround(a, b));
         return;
       }
-      case 'ramp': {
+      case 'force': {
+        const body = this.bodyAt(p, false);
+        if (!body) { this.flash('Click a body to apply a force to it.'); return; }
+        const at1 = this.attachAt(p);
+        add(F.force(F.nextName(this.scene, 'force'), at1.a, 10, 0));
+        return;
+      }
+      case 'ramp':
+      case 'curve': {
         if (!this.pending) {
-          this.pending = { tool: 'ramp', a: { body: null, p: sp }, aWorld: sp, route: [] };
+          this.pending = { tool, a: { body: null, p: sp }, aWorld: sp, route: [] };
           this.updateHint();
           app.redraw();
           return;
         }
-        const ramp = this.makeRamp(this.pending.aWorld, this.slopeEnd(this.pending.aWorld, p));
+        const end = this.slopeEnd(this.pending.aWorld, p);
+        const ramp = tool === 'curve' ? this.makeCurve(this.pending.aWorld, end) : this.makeRamp(this.pending.aWorld, end);
         if (!ramp) { this.flash('Give the slope some height and length.'); return; }
         this.pending = null;
         add(ramp);
@@ -414,6 +446,7 @@ export class Editor {
       case 'point':
       case 'rect':
       case 'pulley':
+      case 'wheel':
         add(this.makeBody(tool, sp));
         return;
       case 'pin': {
@@ -617,7 +650,7 @@ export class Editor {
     if (!d) {
       let h: string | null = null;
       if (this.tool === 'select') h = this.hit(p);
-      else if (this.tool !== 'ground' && this.tool !== 'point' && this.tool !== 'rect' && this.tool !== 'pulley') h = this.bodyAt(p, true)?.id ?? null;
+      else if (!['ground', 'ramp', 'curve', 'point', 'rect', 'pulley', 'wheel'].includes(this.tool)) h = this.bodyAt(p, true)?.id ?? null;
       if (h !== this.app.hover) this.app.hover = h;
       if (this.tool === 'select') {
         const g = this.selectedGround();

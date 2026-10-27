@@ -6,7 +6,7 @@ import type { PointForce } from '../engine/forces';
 import { System } from '../engine/system';
 import type { Attach, El, GroundEl, Scene, TSpringEl } from '../model/types';
 import { si } from './format';
-import { localPolygon, type Outline } from '../model/shapes';
+import { curveSurface, localPolygon, type Outline } from '../model/shapes';
 
 export interface Pose {
   x: number;
@@ -29,6 +29,10 @@ export interface DrawOpts {
   handles?: [number, number][];
   /** Measurement label near a point, e.g. "1.20 m · 90°". */
   measure?: { p: [number, number]; text: string } | null;
+  /** Recent path of each body (flat x, y list), drawn faintly behind it. */
+  trails?: Map<string, number[]> | null;
+  /** Draw each body's velocity vector. */
+  velocities?: ArrayLike<number> | null;
   selection: Set<string>;
   hover: string | null;
   labels: boolean;
@@ -55,6 +59,9 @@ const C = {
   constraint: '#c2410c',
   friction: '#a16207',
   tspring: '#7e22ce',
+  applied: '#9f1239',
+  trail: '#93c5fd',
+  velocity: '#0e7490',
   contact: '#be123c',
 };
 
@@ -129,6 +136,7 @@ export class Renderer {
     const widthFor = (e: El, w: number) => (o.selection.has(e.id) ? w + 1.2 : w);
 
     for (const e of els) if (e.kind === 'ground') this.drawGround(e, strokeFor(e), widthFor(e, 2));
+    if (o.trails) this.drawTrails(o.trails);
     for (const e of els) {
       if (e.kind !== 'slider') continue;
       const t: [number, number] = [Math.cos(e.angle), Math.sin(e.angle)];
@@ -243,6 +251,8 @@ export class Renderer {
       }
     }
 
+    for (const e of els) if (e.kind === 'force') this.drawLoad(e, scene, sys, q, o.selection.has(e.id) ? C.sel : o.hover === e.id ? C.hover : C.applied);
+    if (o.velocities) this.drawVelocities(sys, q, o.velocities);
     if (o.labels) this.drawLabels(scene, sys, q);
     if (o.forces) this.drawForces(o.forces);
     if (o.ghosts?.length) this.drawGhosts(o.ghosts);
@@ -353,7 +363,7 @@ export class Renderer {
   }
 
   drawGround(g: GroundEl, stroke: string, lw: number): void {
-    if (g.shape === 'wedge') return this.drawRamp(g, stroke, lw);
+    if (g.shape === 'wedge' || g.shape === 'curve') return this.drawRamp(g, stroke, lw);
     const { ctx } = this;
     const p = { x: g.x, y: g.y, theta: g.theta };
     const hw = g.w / 2, hh = g.h / 2;
@@ -389,6 +399,89 @@ export class Renderer {
   }
 
   /** Fixed ramp: hatched triangle with a bold slope line and base. */
+  private drawTrails(trails: Map<string, number[]>): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    for (const pts of trails.values()) {
+      const n = pts.length / 2;
+      if (n < 2) continue;
+      // fade from old to new in a few bands
+      const bands = 6;
+      for (let b = 0; b < bands; b++) {
+        const i0 = Math.floor((b * (n - 1)) / bands), i1 = Math.floor(((b + 1) * (n - 1)) / bands);
+        ctx.globalAlpha = 0.15 + (0.75 * (b + 1)) / bands;
+        ctx.strokeStyle = C.trail;
+        ctx.beginPath();
+        for (let i = i0; i <= i1; i++) {
+          const x = this.sx(pts[2 * i]), y = this.sy(pts[2 * i + 1]);
+          i === i0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  private drawVelocities(sys: System, q: ArrayLike<number>, qd: ArrayLike<number>): void {
+    const { ctx } = this;
+    ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
+    for (const b of sys.bodies) {
+      const vx = qd[b.idx], vy = qd[b.idx + 1];
+      const v = Math.hypot(vx, vy);
+      if (v < 1e-3) continue;
+      const X = this.sx(q[b.idx]), Y = this.sy(q[b.idx + 1]);
+      const len = Math.min(140, 40 * v); // 40 px per m/s
+      const ux = vx / v, uy = -vy / v;
+      ctx.strokeStyle = ctx.fillStyle = C.velocity;
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(X, Y);
+      ctx.lineTo(X + ux * len, Y + uy * len);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      this.arrowHead(X + ux * len, Y + uy * len, ux, uy);
+      ctx.fillText(si(v, 'm/s'), X + ux * len + 4, Y + uy * len + 10);
+    }
+  }
+
+  /** Applied force (straight arrow into the point) and torque (curved arrow). */
+  private drawLoad(e: El & { kind: 'force' }, scene: Scene, sys: System, q: ArrayLike<number>, color: string): void {
+    const { ctx } = this;
+    const p = Renderer.attachWorld(scene, sys, q, e.a);
+    const X = this.sx(p[0]), Y = this.sy(p[1]);
+    ctx.strokeStyle = ctx.fillStyle = color;
+    ctx.font = 'italic 12px "Times New Roman", serif';
+    const F = Math.hypot(e.fx, e.fy);
+    if (F > 0) {
+      const ux = e.fx / F, uy = -e.fy / F;
+      const len = 46;
+      // the arrow pushes on the point: tail behind, head at the point
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(X - ux * len, Y - uy * len);
+      ctx.lineTo(X - ux * 6, Y - uy * 6);
+      ctx.stroke();
+      this.arrowHead(X - ux * 2, Y - uy * 2, ux, uy);
+      ctx.fillText(`${e.name} = ${si(F, 'N')}`, X - ux * len - 10, Y - uy * len - 8);
+    }
+    if (e.torque && e.a.body) {
+      const c = Renderer.pose(scene, sys, q, e.a.body);
+      if (!c) return;
+      const CX = this.sx(c.x), CY = this.sy(c.y), r = 20;
+      const ccw = e.torque > 0;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(CX, CY, r, -0.3, -0.3 - Math.PI * 1.3, ccw);
+      ctx.stroke();
+      const end = -0.3 - Math.PI * 1.3;
+      const tang = end + (ccw ? -Math.PI / 2 : Math.PI / 2);
+      this.arrowHead(CX + Math.cos(end) * r, CY + Math.sin(end) * r, Math.cos(tang), Math.sin(tang));
+      ctx.fillText(`τ = ${si(Math.abs(e.torque), 'N·m')}`, CX + r + 4, CY - r);
+    }
+  }
+
   private drawRamp(g: GroundEl, stroke: string, lw: number): void {
     const { ctx } = this;
     const p = { x: g.x, y: g.y, theta: g.theta };
@@ -419,11 +512,18 @@ export class Renderer {
     pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
     ctx.closePath();
     ctx.stroke();
-    const [a, , c] = g.flip ? [pts[2], pts[1], pts[0]] : pts;
     ctx.lineWidth = lw + 0.5;
     ctx.beginPath();
-    ctx.moveTo(a[0], a[1]);
-    ctx.lineTo(c[0], c[1]);
+    if (g.shape === 'curve') {
+      curveSurface(g).forEach(([lx, ly], i) => {
+        const [x, y] = this.local(p, lx, ly);
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      });
+    } else {
+      const [a, , c] = g.flip ? [pts[2], pts[1], pts[0]] : pts;
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(c[0], c[1]);
+    }
     ctx.stroke();
   }
 
@@ -712,7 +812,7 @@ export class Renderer {
     if (fmax < 1e-9) return;
     const scale = this.forceScale ?? 70 / fmax;
     const color: Record<PointForce['kind'], string> = {
-      gravity: C.gravity, spring: C.spring, constraint: C.constraint, friction: C.friction, tspring: C.tspring, contact: C.contact,
+      gravity: C.gravity, spring: C.spring, constraint: C.constraint, friction: C.friction, tspring: C.tspring, contact: C.contact, applied: C.applied,
     };
     ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
     for (const f of forces) {

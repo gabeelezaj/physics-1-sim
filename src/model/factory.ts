@@ -2,7 +2,7 @@
 // editor both build scenes through these.
 
 import type {
-  Attach, El, GroundEl, PinEl, PointEl, PulleyEl, RectEl, RodEl, RopeEl, RopeRoute,
+  Attach, El, ForceEl, GroundEl, PinEl, PointEl, PulleyEl, RectEl, RodEl, RopeEl, RopeRoute,
   Scene, SliderEl, SpringEl, TSpringEl, Vec2,
 } from './types';
 
@@ -14,12 +14,12 @@ export function newId(prefix: string): string {
 
 const PREFIX: Record<El['kind'], string> = {
   ground: 'G', point: 'm', rect: 'B', pulley: 'P', rod: 'R', pin: 'O',
-  slider: 'S', spring: 'k', tspring: 'kt', rope: 'T',
+  slider: 'S', spring: 'k', tspring: 'kt', rope: 'T', force: 'F',
 };
 
-/** Next free display name like "m3" for a kind in a scene. */
-export function nextName(scene: Scene, kind: El['kind']): string {
-  const p = PREFIX[kind];
+/** Next free display name like "m3" for a kind in a scene (or a custom prefix). */
+export function nextName(scene: Scene, kind: El['kind'], prefix?: string): string {
+  const p = prefix ?? PREFIX[kind];
   const used = new Set(scene.elements.map((e) => e.name));
   for (let i = 1; ; i++) if (!used.has(`${p}${i}`)) return `${p}${i}`;
 }
@@ -64,4 +64,8 @@ export function tspring(name: string, pinId: string, k: number, theta0: number, 
 
 export function rope(name: string, a: Attach, b: Attach, route: RopeRoute[], length: number): RopeEl {
   return { id: newId('T'), kind: 'rope', name, a, b, route, length };
+}
+
+export function force(name: string, a: Attach, fx: number, fy: number, torque = 0): ForceEl {
+  return { id: newId('f'), kind: 'force', name, a, fx, fy, torque };
 }

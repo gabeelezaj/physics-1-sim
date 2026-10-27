@@ -26,13 +26,29 @@ export interface GroundEl extends Base {
   theta: number;
   w: number;
   h: number;
-  /** 'wedge' = fixed ramp: right triangle, base w, height h, origin at its centroid. */
+  /**
+   * 'wedge' = fixed ramp: right triangle, base w, height h, origin at its centroid.
+   * 'curve' = curved ramp in a w × h box centred on the origin.
+   */
   shape?: BodyShapeKind;
-  /** Wedge only: the slope rises to the left instead of the right. */
+  /** Wedge/curve: the slope rises to the left instead of the right. */
   flip?: boolean;
+  /** Curve: 'concave' quarter-pipe (flat → vertical) or 'convex' hump (vertical → flat). */
+  profile?: 'concave' | 'convex';
+  /** Coulomb friction coefficient against bodies touching it (absent = 0). */
+  mu?: number;
 }
 
-export type BodyShapeKind = 'box' | 'wedge';
+export type BodyShapeKind = 'box' | 'wedge' | 'curve';
+
+/** Constant applied force (world direction) and/or torque on a body. */
+export interface ForceEl extends Base {
+  kind: 'force';
+  a: Attach;
+  fx: number;
+  fy: number;
+  torque: number;
+}
 
 export interface PointEl extends Base {
   /** Takes part in collisions (absent = yes). */
@@ -145,7 +161,7 @@ export interface RopeEl extends Base {
 
 export type BodyEl = GroundEl | PointEl | RectEl | PulleyEl;
 export type DynBodyEl = PointEl | RectEl | PulleyEl;
-export type ConnectorEl = RodEl | PinEl | SliderEl | SpringEl | TSpringEl | RopeEl;
+export type ConnectorEl = RodEl | PinEl | SliderEl | SpringEl | TSpringEl | RopeEl | ForceEl;
 export type El = BodyEl | ConnectorEl;
 export type ElKind = El['kind'];
 

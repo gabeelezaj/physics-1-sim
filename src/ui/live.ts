@@ -100,6 +100,16 @@ export function liveRows(app: App, e: El): Row[] {
       if (c.route.length) rows.push(['on', on.length ? pulleys(on) : 'none'], ['off (rope left them)', off.length ? pulleys(off) : 'none']);
       return rows;
     }
+    case 'force': {
+      const b = e.a.body ? sys.byId.get(e.a.body) : null;
+      const rows: Row[] = [['|F|', si(Math.hypot(e.fx, e.fy), 'N')]];
+      if (b) {
+        const v = [qd[b.idx], qd[b.idx + 1]];
+        rows.push(['power F·v (at centre)', si(e.fx * v[0] + e.fy * v[1], 'W')]);
+      }
+      if (e.torque) rows.push(['torque', si(e.torque, 'N·m')]);
+      return rows;
+    }
     default:
       return [];
   }

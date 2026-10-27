@@ -14,11 +14,76 @@ export interface Outline {
   h: number;
   shape?: BodyShapeKind;
   flip?: boolean;
+  profile?: 'concave' | 'convex';
+}
+
+const CURVE_SEGMENTS = 32;
+
+/**
+ * Points along a curved ramp's surface from the low end to the high end
+ * (rising right, before `flip`), in its w × h box centred on the origin.
+ * Sampled evenly in angle so the steep part gets as many points as the flat.
+ */
+function curveRaw(o: Outline): V2[] {
+  const pts: V2[] = [];
+  for (let i = 0; i <= CURVE_SEGMENTS; i++) {
+    const phi = (i / CURVE_SEGMENTS) * (Math.PI / 2);
+    const u = o.profile === 'convex' ? 1 - Math.cos(phi) : Math.sin(phi);
+    const f = o.profile === 'convex' ? Math.sin(phi) : 1 - Math.cos(phi);
+    pts.push([-o.w / 2 + o.w * u, -o.h / 2 + o.h * f]);
+  }
+  return pts;
+}
+
+const mirror = (pts: V2[]): V2[] => pts.map(([x, y]): V2 => [-x, y]).reverse();
+
+/** The curved surface itself (for drawing), low end first. */
+export function curveSurface(o: Outline): V2[] {
+  const raw = curveRaw(o);
+  return o.flip ? raw.map(([x, y]): V2 => [-x, y]) : raw;
+}
+
+/** Height of a curved ramp's surface at local x (rising right, before flip). */
+function curveHeightAt(o: Outline, x: number): number {
+  const u = Math.max(0, Math.min(1, (x + o.w / 2) / o.w));
+  const f = o.profile === 'convex' ? Math.sqrt(Math.max(0, 1 - (1 - u) ** 2)) : 1 - Math.sqrt(Math.max(0, 1 - u * u));
+  return -o.h / 2 + o.h * f;
+}
+
+/**
+ * Convex pieces whose union is the shape (contact needs convex parts):
+ * the shape itself for a box or wedge, vertical slices under a curve.
+ */
+export function convexParts(o: Outline): V2[][] {
+  if (o.shape !== 'curve') return [localPolygon(o)];
+  const c = curveRaw(o), b = -o.h / 2;
+  const parts: V2[][] = [];
+  for (let i = 0; i + 1 < c.length; i++) {
+    const quad: V2[] = [[c[i][0], b], [c[i + 1][0], b], c[i + 1], c[i]];
+    // drop repeated corners (the first slice starts at zero height)
+    const clean = quad.filter((p, k) => Math.hypot(p[0] - quad[(k + 1) % 4][0], p[1] - quad[(k + 1) % 4][1]) > 1e-9);
+    if (clean.length >= 3) parts.push(o.flip ? mirror(clean) : clean);
+  }
+  return parts;
+}
+
+/** Inside test for any outline in its local frame (curves are not convex). */
+export function insideOutline(o: Outline, p: V2, tol = 0): boolean {
+  if (o.shape !== 'curve') return insidePolygon(localPolygon(o), p, tol);
+  const x = o.flip ? -p[0] : p[0];
+  return Math.abs(x) <= o.w / 2 + tol && p[1] >= -o.h / 2 - tol && p[1] <= curveHeightAt(o, x) + tol;
 }
 
 /** Local outline vertices, counter-clockwise. */
 export function localPolygon(o: Outline): V2[] {
   const { w, h } = o;
+  if (o.shape === 'curve') {
+    // base corners, then the surface from the high end back to the low end
+    const raw = curveRaw(o);
+    const pts: V2[] = [[-w / 2, -h / 2], [w / 2, -h / 2], ...raw.slice(1).reverse()];
+    const out = pts.filter((p, k) => Math.hypot(p[0] - pts[(k + 1) % pts.length][0], p[1] - pts[(k + 1) % pts.length][1]) > 1e-9);
+    return o.flip ? mirror(out) : out;
+  }
   if (o.shape !== 'wedge') return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]];
   // rising right: base-left, base-right, top-right
   const pts: V2[] = [[(-2 * w) / 3, -h / 3], [w / 3, -h / 3], [w / 3, (2 * h) / 3]];
@@ -27,6 +92,7 @@ export function localPolygon(o: Outline): V2[] {
 
 /** Centroidal moment of inertia of a uniform plate of this outline. */
 export function plateInertia(o: Outline, m: number): number {
+  // curves are fixed-only; use the bounding plate if ever asked
   return o.shape === 'wedge' ? (m * (o.w * o.w + o.h * o.h)) / 18 : (m * (o.w * o.w + o.h * o.h)) / 12;
 }
 

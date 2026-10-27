@@ -24,10 +24,12 @@ describe.each(PRESETS.map((p) => [p.title, p] as const))('preset %s', (_title, p
     for (const w2 of lin.omega2) expect(w2).toBeGreaterThan(0);
   });
 
-  it('keeps its energy balance over 60 s (< 0.1%, or < 1% with impacts)', () => {
+  // contact-heavy presets run 10 s unless FULL=1 (npm run test:full)
+  const T = preset.modal || process.env.FULL ? 60 : 10;
+  it(`keeps its energy balance over ${T} s (< 0.1%, or < 1% with impacts)`, () => {
     const sim = new Simulation(preset.build());
     let worst = 0;
-    sim.run(60, (s) => { worst = Math.max(worst, Math.abs(s.driftPercent())); });
+    sim.run(T, (s) => { worst = Math.max(worst, Math.abs(s.driftPercent())); });
     expect(sim.q.every(Number.isFinite)).toBe(true);
     expect(sim.keMax).toBeGreaterThan(1e-3);
     expect(worst).toBeLessThan(sim.dissipated > 1e-9 ? 1 : 0.1);
