@@ -331,3 +331,10 @@ table.data td:first-child, table.data th:first-child { text-align: left; }
   button.toggle { padding: 0 9px 0 21px; }
   button.toggle::before { left: 8px; }
 }
+
+#btn-view { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; }
+#btn-view .chev { width: 14px; height: 14px; }
+.view-menu { min-width: 210px; left: 10px; }
+.view-menu button.toggle { padding-left: 28px; background: none; border: none; color: var(--ink-2); }
+.view-menu button.toggle::before { left: 10px; }
+.view-menu button.toggle[aria-pressed='true'] { color: var(--accent); background: var(--accent-soft); }

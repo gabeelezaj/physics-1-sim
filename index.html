@@ -52,12 +52,18 @@
         <button id="tg-contact" class="toggle" aria-pressed="true" title="Bodies collide with walls, floors and each other">Collisions</button>
       </div>
 
-      <div class="group">
-        <button id="tg-snap" class="toggle" aria-pressed="true" title="Snap to grid, 15° angles and body features">Snap</button>
-        <button id="tg-fbd" class="toggle" aria-pressed="false" title="Free body diagram: force arrows on every body">Forces</button>
-        <button id="tg-trails" class="toggle" aria-pressed="false" title="Draw the path each body traces">Trails</button>
-        <button id="tg-vel" class="toggle" aria-pressed="false" title="Velocity arrow on each body">Velocity</button>
-        <button id="tg-labels" class="toggle" aria-pressed="true" title="Show element names">Labels</button>
+      <div class="group menu-wrap">
+        <button id="btn-view" aria-haspopup="menu" aria-expanded="false" title="What to draw on the canvas">
+          View <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6" /></svg>
+        </button>
+        <div id="view-menu" class="menu view-menu" role="menu" hidden>
+          <button id="tg-fbd" class="toggle" aria-pressed="false" title="Free body diagram: force arrows on every body">Force arrows (FBD)</button>
+          <button id="tg-vel" class="toggle" aria-pressed="false" title="Velocity arrow on each body">Velocity arrows</button>
+          <button id="tg-trails" class="toggle" aria-pressed="false" title="Draw the path each body traces">Motion trails</button>
+          <button id="tg-labels" class="toggle" aria-pressed="true" title="Show element names">Labels</button>
+          <div class="menu-sep"></div>
+          <button id="tg-snap" class="toggle" aria-pressed="true" title="Snap to grid, angles and body features">Snap to grid</button>
+        </div>
         <button id="btn-fit" class="icon" title="Frame the whole scene (F)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
         </button>

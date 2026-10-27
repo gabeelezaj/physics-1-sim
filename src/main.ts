@@ -135,6 +135,17 @@ fileInput.addEventListener('change', async () => {
   }
 });
 
+// view menu (toggles stay open so several can be flipped)
+const viewBtn = $<HTMLButtonElement>('btn-view');
+const viewMenu = $('view-menu');
+viewBtn.addEventListener('click', (ev) => {
+  ev.stopPropagation();
+  viewMenu.hidden = !viewMenu.hidden;
+  viewBtn.setAttribute('aria-expanded', String(!viewMenu.hidden));
+});
+viewMenu.addEventListener('click', (ev) => ev.stopPropagation());
+document.addEventListener('click', () => { viewMenu.hidden = true; viewBtn.setAttribute('aria-expanded', 'false'); });
+
 // resizable side panel
 const side = $('side');
 const SIDE_KEY = 'mechanism-sandbox:side-width';
