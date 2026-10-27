@@ -26,7 +26,13 @@ export interface GroundEl extends Base {
   theta: number;
   w: number;
   h: number;
+  /** 'wedge' = fixed ramp: right triangle, base w, height h, origin at its centroid. */
+  shape?: BodyShapeKind;
+  /** Wedge only: the slope rises to the left instead of the right. */
+  flip?: boolean;
 }
+
+export type BodyShapeKind = 'box' | 'wedge';
 
 export interface PointEl extends Base {
   /** Takes part in collisions (absent = yes). */
@@ -53,8 +59,11 @@ export interface RectEl extends Base {
   m: number;
   w: number;
   h: number;
-  /** Moment of inertia about the centroid; null = uniform plate m(w²+h²)/12. */
+  /** Moment of inertia about the centroid; null = uniform plate (box m(w²+h²)/12, wedge m(w²+h²)/18). */
   I: number | null;
+  /** 'wedge' = right-triangle body (a movable ramp), origin at its centroid. */
+  shape?: BodyShapeKind;
+  flip?: boolean;
 }
 
 export interface PulleyEl extends Base {

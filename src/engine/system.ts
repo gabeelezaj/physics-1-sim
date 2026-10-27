@@ -6,7 +6,8 @@
 import { solveFullPivotInPlace } from '../math/linalg';
 import type { Attach, DynBodyEl, El, GroundEl, PinEl, Scene } from '../model/types';
 import { Constraint, PinC, RodC, RopeC, SliderC } from './constraints';
-import { BodyContactF, ContactF, contactGains, type BodyShape } from './contact';
+import { ContactF, contactGains, type BodyShape } from './contact';
+import { localPolygon, plateInertia } from '../model/shapes';
 import { ForceEl, FrictionF, PointForce, SpringF, TSpringF } from './forces';
 import { APt, SBody, addPtForce, ptPos } from './kin';
 import { RopeNode } from './rope';
@@ -64,7 +65,7 @@ export class System {
     for (const e of els) {
       if (e.kind !== 'point' && e.kind !== 'rect' && e.kind !== 'pulley') continue;
       const dof = e.kind === 'point' ? 2 : 3;
-      const I = e.kind === 'rect' ? (e.I ?? (e.m * (e.w * e.w + e.h * e.h)) / 12)
+      const I = e.kind === 'rect' ? (e.I ?? plateInertia(e, e.m))
         : e.kind === 'pulley' ? (e.I ?? 0.5 * e.m * e.r * e.r) : 0;
       const b: SBody = { id: e.id, name: e.name, kind: e.kind, m: e.m, I, idx, dof };
       this.bodies.push(b);
@@ -137,23 +138,24 @@ export class System {
     for (const e of els) {
       const b = this.byId.get(e.id);
       if (!b || (e.kind !== 'rect' && e.kind !== 'point' && e.kind !== 'pulley') || e.collide === false) continue;
-      const shape: BodyShape = e.kind === 'rect' ? { kind: 'box', hw: e.w / 2, hh: e.h / 2 }
+      const shape: BodyShape = e.kind === 'rect' ? { kind: 'poly', verts: localPolygon(e) }
         : { kind: 'circle', r: e.kind === 'pulley' ? e.r : e.radius };
       shapes.push({ b, shape, fixedAxle: e.kind === 'pulley' && e.fixedAxle });
     }
-    const overlap = (what: string, f: { maxDepth(q: ArrayLike<number>): number }) => {
-      if (f.maxDepth(q) <= 1e-3) return false;
-      this.warnings.push(`${what} start overlapping; contact between them is off.`);
-      return true;
+    const add = (what: string, f: ContactF) => {
+      if (f.maxDepth(q) > 1e-3) this.warnings.push(`${what} start overlapping; contact between them is off.`);
+      else this.forces.push(f);
     };
     for (const { b, shape, fixedAxle } of shapes) {
       if (fixedAxle) continue;
       const { k, c } = contactGains(b.m, dt, e0);
       for (const g of this.grounds.values()) {
         if (joined.has(`${b.id}|${g.id}`)) continue;
-        const box = { id: g.id, name: g.name, x: g.x, y: g.y, theta: g.theta, hw: g.w / 2, hh: g.h / 2 };
-        const cf = new ContactF(b, shape, box, k, c);
-        if (!overlap(`${b.name} and ${g.name}`, cf)) this.forces.push(cf);
+        add(`${b.name} and ${g.name}`, new ContactF(
+          { b, name: b.name, shape },
+          { b: null, name: g.name, shape: { kind: 'poly', verts: localPolygon(g) }, fixed: { x: g.x, y: g.y, theta: g.theta } },
+          k, c,
+        ));
       }
     }
     for (let i = 0; i < shapes.length; i++) {
@@ -163,8 +165,7 @@ export class System {
         // a fixed axle acts like an immovable obstacle: use the other body's mass
         const meff = A.fixedAxle ? B.b.m : B.fixedAxle ? A.b.m : (A.b.m * B.b.m) / (A.b.m + B.b.m);
         const { k, c } = contactGains(meff, dt, e0);
-        const cf = new BodyContactF(A.b, A.shape, B.b, B.shape, k, c);
-        if (!overlap(`${A.b.name} and ${B.b.name}`, cf)) this.forces.push(cf);
+        add(`${A.b.name} and ${B.b.name}`, new ContactF({ b: A.b, name: A.b.name, shape: A.shape }, { b: B.b, name: B.b.name, shape: B.shape }, k, c));
       }
     }
   }
@@ -349,7 +350,7 @@ export class System {
   /** True if any contact (ground or body–body) is currently penetrating. */
   inContact(q: ArrayLike<number>): boolean {
     for (const f of this.forces) {
-      if ((f instanceof ContactF || f instanceof BodyContactF) && f.hits(q).length) return true;
+      if (f instanceof ContactF && f.hits(q).length) return true;
     }
     return false;
   }
