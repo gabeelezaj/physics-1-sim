@@ -76,7 +76,7 @@ describe('ground contact', () => {
   it('skips pairs that start overlapping, and can be switched off', () => {
     const s = emptyScene();
     s.elements.push(floor(), point('m1', 0, -0.02, 1, { radius: 0.05 }));
-    expect(new System(s).warnings.join(' ')).toMatch(/starts inside/);
+    expect(new System(s).warnings.join(' ')).toMatch(/start overlapping/);
     s.settings.contact = false;
     expect(new System(s).forces.length).toBe(0);
   });

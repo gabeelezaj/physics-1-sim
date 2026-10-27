@@ -55,7 +55,26 @@ export class Simulation {
     return (100 * (e.total + this.dissipated - this.E0)) / ref;
   }
 
+  /**
+   * Advance one step. While anything is in contact the step is split into
+   * four RK4 substeps: penalty contacts are stiff and switch on and off, and
+   * the finer steps keep impacts (and their energy bookkeeping) accurate.
+   */
   step(h = this.dt): void {
+    // in contact now, or about to be by the end of the step (look ahead along q̇)
+    const ahead = this.tmpQ;
+    for (let i = 0; i < this.q.length; i++) ahead[i] = this.q[i] + 1.5 * h * this.qd[i];
+    if (this.sys.inContact(this.q) || this.sys.inContact(ahead)) for (let i = 0; i < 4; i++) this.rk4(h / 4);
+    else this.rk4(h);
+    // ropes leaving/catching pulleys; a catch is a plastic impulse, so book its loss
+    const { sys, q, qd } = this;
+    const keBefore = sys.kinetic(qd);
+    if (sys.postStep(q, qd)) this.dissipated += keBefore - sys.kinetic(qd);
+    const ke = sys.kinetic(qd);
+    if (ke > this.keMax) this.keMax = ke;
+  }
+
+  private rk4(h: number): void {
     const { sys, q, qd } = this;
     const n = sys.n;
     const [k1q, k1v, k2q, k2v, k3q, k3v, k4q, k4v] = this.k;
@@ -86,11 +105,6 @@ export class Simulation {
       qd[i] += (h / 6) * (k1v[i] + 2 * k2v[i] + 2 * k3v[i] + k4v[i]);
     }
     this.t += h;
-    // ropes leaving/catching pulleys; a catch is a plastic impulse, so book its loss
-    const keBefore = sys.kinetic(qd);
-    if (sys.postStep(q, qd)) this.dissipated += keBefore - sys.kinetic(qd);
-    const ke = sys.kinetic(qd);
-    if (ke > this.keMax) this.keMax = ke;
   }
 
   /** Advance by `duration` seconds in fixed steps. */

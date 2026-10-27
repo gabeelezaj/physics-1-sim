@@ -33,19 +33,21 @@ const VEL: Field[] = [
   { key: 'vx', label: 'velocity ẋ', unit: 'm/s', step: 0.1, init: true },
   { key: 'vy', label: 'velocity ẏ', unit: 'm/s', step: 0.1, init: true },
 ];
+/** Absent means true, so it is shown as `value !== false`. */
+const COLLIDE: Field = { key: 'collide', label: 'collides', kind: 'bool' };
 const OMEGA: Field = { key: 'omega', label: 'spin θ̇', unit: 'rad/s', step: 0.1, init: true };
 
 const FIELDS: Record<El['kind'], Field[]> = {
   ground: [],
-  point: [{ key: 'm', label: 'mass', unit: 'kg', step: 0.1, min: 1e-6 }, { key: 'radius', label: 'radius (draw)', unit: 'm', step: 0.01, min: 0.005 }, ...POSE, ...VEL],
+  point: [{ key: 'm', label: 'mass', unit: 'kg', step: 0.1, min: 1e-6 }, { key: 'radius', label: 'radius', unit: 'm', step: 0.01, min: 0.005 }, COLLIDE, ...POSE, ...VEL],
   rect: [
     { key: 'm', label: 'mass', unit: 'kg', step: 0.1, min: 1e-6 }, { key: 'I', label: 'I_G', unit: 'kg·m²', kind: 'auto', step: 0.01 },
     { key: 'w', label: 'length', unit: 'm', step: 0.05, min: 0.01 }, { key: 'h', label: 'height', unit: 'm', step: 0.02, min: 0.01 },
-    ...POSE, ANGLE, ...VEL, OMEGA,
+    COLLIDE, ...POSE, ANGLE, ...VEL, OMEGA,
   ],
   pulley: [
     { key: 'm', label: 'mass', unit: 'kg', step: 0.1, min: 1e-6 }, { key: 'I', label: 'I_O', unit: 'kg·m²', kind: 'auto', step: 0.001 },
-    { key: 'r', label: 'radius', unit: 'm', step: 0.01, min: 0.01 }, { key: 'fixedAxle', label: 'fixed axle', kind: 'bool' },
+    { key: 'r', label: 'radius', unit: 'm', step: 0.01, min: 0.01 }, { key: 'fixedAxle', label: 'fixed axle', kind: 'bool' }, COLLIDE,
     ...POSE, ANGLE, ...VEL, OMEGA,
   ],
   rod: [{ key: 'length', label: 'length', unit: 'm', step: 0.05, min: 1e-4 }],
@@ -136,13 +138,13 @@ export class PropsPanel {
       this.input('Time step', 'num', s.settings.dt * 1000, (v) => this.app.commit((sc) => (sc.settings.dt = Math.max(1e-5, Number(v) / 1000))), { unit: 'ms', step: 0.1, key: 'dt' }),
       this.input('Baumgarte α', 'num', s.settings.alpha, (v) => this.app.commit((sc) => (sc.settings.alpha = Number(v))), { unit: '1/s', step: 1, key: 'alpha' }),
       this.input('Baumgarte β', 'num', s.settings.beta, (v) => this.app.commit((sc) => (sc.settings.beta = Number(v))), { unit: '1/s', step: 1, key: 'beta' }),
-      this.input('Ground collisions', 'bool', s.settings.contact !== false, (v) => this.app.commit((sc) => (sc.settings.contact = !!v)), { key: 'contact' }),
+      this.input('Collisions', 'bool', s.settings.contact !== false, (v) => this.app.commit((sc) => (sc.settings.contact = !!v)), { key: 'contact' }),
       this.input('Restitution e', 'num', s.settings.restitution ?? 0.5, (v) => this.app.commit((sc) => (sc.settings.restitution = Math.min(1, Math.max(0, Number(v))))), { step: 0.1, key: 'restitution' }),
     );
     this.root.appendChild(grid);
     const note = document.createElement('div');
     note.className = 'props-note';
-    note.textContent = 'Select an element to edit it. Positions you type are held while the rest of the mechanism re-assembles around them. Restitution 1 = perfectly elastic bounces off walls and floors, 0 = no bounce.';
+    note.textContent = 'Select an element to edit it. Positions you type are held while the rest of the mechanism re-assembles around them. Collisions cover walls, floors and other bodies; restitution 1 = perfectly elastic, 0 = no bounce. Untick “collides” on a body to let it pass through things.';
     this.root.appendChild(note);
   }
 
@@ -181,7 +183,7 @@ export class PropsPanel {
       for (const f of fields) {
         const raw = getPath(e, f.key);
         const kind = f.kind ?? 'num';
-        const shown = kind === 'deg' ? (raw * 180) / Math.PI : raw;
+        const shown = kind === 'deg' ? (raw * 180) / Math.PI : f.key === 'collide' ? raw !== false : raw;
         grid.appendChild(this.input(f.label, kind, shown, (v) => {
           let val: any = v;
           if (kind === 'deg') val = (Number(v) * Math.PI) / 180;
@@ -298,7 +300,7 @@ export class PropsPanel {
 
   private info(e: El): string {
     switch (e.kind) {
-      case 'rect': return 'Angles are measured counter-clockwise from the body\'s long axis. Leave I blank for a uniform plate, m(L²+h²)/12.';
+      case 'rect': return 'Angles are measured counter-clockwise from the body\'s long axis. Leave I blank for a uniform plate, m(L²+h²)/12. Bodies joined directly by a pin or rod never collide with each other.';
       case 'pulley': return 'Leave I blank for a uniform disc, ½mr². The rope does not slip, so the pulley\'s inertia enters the dynamics.';
       case 'slider': return 'The attachment point stays on a fixed straight track. With rotation locked the body translates only (a cart).';
       case 'tspring': return 'Torque −k_t(θ_A − θ_B − θ₀) on body A of the pin, opposite on body B.';

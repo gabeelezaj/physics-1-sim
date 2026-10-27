@@ -6,7 +6,7 @@
 import { solveFullPivotInPlace } from '../math/linalg';
 import type { Attach, DynBodyEl, El, GroundEl, PinEl, Scene } from '../model/types';
 import { Constraint, PinC, RodC, RopeC, SliderC } from './constraints';
-import { ContactF, contactGains } from './contact';
+import { BodyContactF, ContactF, contactGains, type BodyShape } from './contact';
 import { ForceEl, FrictionF, PointForce, SpringF, TSpringF } from './forces';
 import { APt, SBody, addPtForce, ptPos } from './kin';
 import { RopeNode } from './rope';
@@ -117,9 +117,10 @@ export class System {
   }
 
   /**
-   * One contact element per (moving body, ground piece) pair, except pairs
-   * joined directly by a pin or rod, fixed-axle pulleys, and pairs that
-   * already overlap in the initial configuration.
+   * Contact elements for every (moving body, ground piece) pair and every
+   * pair of moving bodies, except pairs joined directly by a pin or rod,
+   * bodies with collisions switched off, fixed-axle pulleys against ground,
+   * and pairs that already overlap in the initial configuration.
    */
   private compileContacts(): void {
     const els = this.scene.elements;
@@ -131,24 +132,39 @@ export class System {
     }
     const { q } = this.initialState();
     const e0 = this.scene.settings.restitution ?? 0.5;
+    const dt = this.scene.settings.dt;
+    const shapes: { b: SBody; shape: BodyShape; fixedAxle: boolean }[] = [];
     for (const e of els) {
       const b = this.byId.get(e.id);
-      if (!b) continue;
-      if (e.kind === 'pulley' && e.fixedAxle) continue;
-      const shape = e.kind === 'rect' ? { kind: 'box' as const, hw: e.w / 2, hh: e.h / 2 }
-        : e.kind === 'pulley' ? { kind: 'circle' as const, r: e.r }
-        : e.kind === 'point' ? { kind: 'circle' as const, r: e.radius } : null;
-      if (!shape) continue;
-      const { k, c } = contactGains(b.m, this.scene.settings.dt, e0);
+      if (!b || (e.kind !== 'rect' && e.kind !== 'point' && e.kind !== 'pulley') || e.collide === false) continue;
+      const shape: BodyShape = e.kind === 'rect' ? { kind: 'box', hw: e.w / 2, hh: e.h / 2 }
+        : { kind: 'circle', r: e.kind === 'pulley' ? e.r : e.radius };
+      shapes.push({ b, shape, fixedAxle: e.kind === 'pulley' && e.fixedAxle });
+    }
+    const overlap = (what: string, f: { maxDepth(q: ArrayLike<number>): number }) => {
+      if (f.maxDepth(q) <= 1e-3) return false;
+      this.warnings.push(`${what} start overlapping; contact between them is off.`);
+      return true;
+    };
+    for (const { b, shape, fixedAxle } of shapes) {
+      if (fixedAxle) continue;
+      const { k, c } = contactGains(b.m, dt, e0);
       for (const g of this.grounds.values()) {
         if (joined.has(`${b.id}|${g.id}`)) continue;
         const box = { id: g.id, name: g.name, x: g.x, y: g.y, theta: g.theta, hw: g.w / 2, hh: g.h / 2 };
         const cf = new ContactF(b, shape, box, k, c);
-        if (cf.maxDepth(q) > 1e-3) {
-          this.warnings.push(`${b.name} starts inside ${g.name}; contact between them is off.`);
-          continue;
-        }
-        this.forces.push(cf);
+        if (!overlap(`${b.name} and ${g.name}`, cf)) this.forces.push(cf);
+      }
+    }
+    for (let i = 0; i < shapes.length; i++) {
+      for (let j = i + 1; j < shapes.length; j++) {
+        const A = shapes[i], B = shapes[j];
+        if (joined.has(`${A.b.id}|${B.b.id}`) || (A.fixedAxle && B.fixedAxle)) continue;
+        // a fixed axle acts like an immovable obstacle: use the other body's mass
+        const meff = A.fixedAxle ? B.b.m : B.fixedAxle ? A.b.m : (A.b.m * B.b.m) / (A.b.m + B.b.m);
+        const { k, c } = contactGains(meff, dt, e0);
+        const cf = new BodyContactF(A.b, A.shape, B.b, B.shape, k, c);
+        if (!overlap(`${A.b.name} and ${B.b.name}`, cf)) this.forces.push(cf);
       }
     }
   }
@@ -328,6 +344,14 @@ export class System {
       for (let k = 0; k < n; k++) qdd[k] += J[oi + k] * l;
     }
     for (let k = 0; k < n; k++) qdd[k] *= invMass[k];
+  }
+
+  /** True if any contact (ground or body–body) is currently penetrating. */
+  inContact(q: ArrayLike<number>): boolean {
+    for (const f of this.forces) {
+      if ((f instanceof ContactF || f instanceof BodyContactF) && f.hits(q).length) return true;
+    }
+    return false;
   }
 
   /** Power of all non-conservative applied forces (damping, friction, impacts). */

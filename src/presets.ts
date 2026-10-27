@@ -9,6 +9,8 @@ export interface Preset {
   id: string;
   title: string;
   build: () => Scene;
+  /** Has a stable equilibrium with all natural frequencies positive. */
+  modal?: boolean;
 }
 
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -136,8 +138,30 @@ export function centralMassWithSidePendulums(): Scene {
   return s;
 }
 
+/**
+ * (4) Carts on a frictionless track: a heavy cart runs into two lighter ones;
+ * the last is held off the right wall by a bumper spring.
+ */
+export function collidingCarts(): Scene {
+  const s = emptyScene();
+  s.title = 'Colliding carts';
+  s.settings.restitution = 0.8;
+  const floor = ground('G1', 0, -0.06, { w: 4.8, h: 0.12 });
+  const wallL = ground('G2', -2.36, 0.4, { theta: -Math.PI / 2, w: 0.9, h: 0.12 });
+  const wallR = ground('G3', 2.36, 0.4, { theta: Math.PI / 2, w: 0.9, h: 0.12 });
+  const h = 0.24, gap = 0.04, y = gap + h / 2;
+  const A = rect('A', -1.5, y, 2, 0.6, h, { vx: 2.5 });
+  const B = rect('B', 0, y, 1, 0.45, h);
+  const C = rect('C', 0.8, y, 1, 0.45, h);
+  const track = (b: RectEl, n: string) => slider(n, at(b.id, 0, -h / 2 - gap), [b.x, 0], 0, { lockRotation: true, extent: 0.4 });
+  const bumper = spring('k1', at(C.id, 0.225, 0), onGround(wallR, 2.3, y), 150, 2.3 - 1.025);
+  s.elements.push(floor, wallL, wallR, A, B, C, track(A, 'S1'), track(B, 'S2'), track(C, 'S3'), bumper);
+  return s;
+}
+
 export const PRESETS: Preset[] = [
-  { id: 'cart-bars', title: '1 · Cart with two tilted bars', build: cartWithTwoBars },
-  { id: 'pendulum-pulleys', title: '2 · Pendulum + masses over pulleys', build: pendulumAndPulleys },
-  { id: 'central-side', title: '3 · Central mass + side pendulums', build: centralMassWithSidePendulums },
+  { id: 'cart-bars', title: '1 · Cart with two tilted bars', build: cartWithTwoBars, modal: true },
+  { id: 'pendulum-pulleys', title: '2 · Pendulum + masses over pulleys', build: pendulumAndPulleys, modal: true },
+  { id: 'central-side', title: '3 · Central mass + side pendulums', build: centralMassWithSidePendulums, modal: true },
+  { id: 'colliding-carts', title: '4 · Colliding carts', build: collidingCarts },
 ];

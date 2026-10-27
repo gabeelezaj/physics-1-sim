@@ -12,7 +12,7 @@ describe.each(PRESETS.map((p) => [p.title, p] as const))('preset %s', (_title, p
     expect(sim.assemblyResidual).toBeLessThan(1e-9);
   });
 
-  it('has a stable static equilibrium with positive natural frequencies', () => {
+  it.skipIf(!preset.modal)('has a stable static equilibrium with positive natural frequencies', () => {
     const scene = preset.build();
     const sys = new System(scene);
     const { q, qd } = sys.initialState();
@@ -24,13 +24,13 @@ describe.each(PRESETS.map((p) => [p.title, p] as const))('preset %s', (_title, p
     for (const w2 of lin.omega2) expect(w2).toBeGreaterThan(0);
   });
 
-  it('conserves energy within 0.1% over 60 s (undamped)', () => {
+  it('keeps its energy balance over 60 s (< 0.1%, or < 1% with impacts)', () => {
     const sim = new Simulation(preset.build());
     let worst = 0;
     sim.run(60, (s) => { worst = Math.max(worst, Math.abs(s.driftPercent())); });
     expect(sim.q.every(Number.isFinite)).toBe(true);
     expect(sim.keMax).toBeGreaterThan(1e-3);
-    expect(worst).toBeLessThan(0.1);
+    expect(worst).toBeLessThan(sim.dissipated > 1e-9 ? 1 : 0.1);
   });
 });
 
@@ -50,4 +50,16 @@ it('preset 3 has five degrees of freedom', () => {
   const eq = findEquilibrium(sys, q);
   const lin = linearize(sys, eq.q, eq.lambda);
   expect(lin.indep.length).toBe(5);
+});
+
+it('preset 4: the carts collide and stay in order on the track', () => {
+  const sim = new Simulation(PRESETS[3].build());
+  const [A, B, C] = sim.sys.bodies;
+  let ordered = true;
+  sim.run(20, (s) => {
+    const xa = s.q[A.idx], xb = s.q[B.idx], xc = s.q[C.idx];
+    if (xb - xa < 0.5 || xc - xb < 0.42 || xa < -2.32 || xc > 2.1) ordered = false;
+  });
+  expect(ordered).toBe(true);
+  expect(sim.dissipated).toBeGreaterThan(0.5); // inelastic hits (e = 0.8) took energy out
 });

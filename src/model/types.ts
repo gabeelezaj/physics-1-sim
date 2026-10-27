@@ -29,6 +29,8 @@ export interface GroundEl extends Base {
 }
 
 export interface PointEl extends Base {
+  /** Takes part in collisions (absent = yes). */
+  collide?: boolean;
   kind: 'point';
   x: number;
   y: number;
@@ -39,6 +41,8 @@ export interface PointEl extends Base {
 }
 
 export interface RectEl extends Base {
+  /** Takes part in collisions (absent = yes). */
+  collide?: boolean;
   kind: 'rect';
   x: number;
   y: number;
@@ -54,6 +58,8 @@ export interface RectEl extends Base {
 }
 
 export interface PulleyEl extends Base {
+  /** Takes part in collisions (absent = yes). */
+  collide?: boolean;
   kind: 'pulley';
   x: number;
   y: number;
