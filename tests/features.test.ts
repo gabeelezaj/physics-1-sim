@@ -93,3 +93,39 @@ describe('curved ramp', () => {
     expect(Math.abs(sim.driftPercent())).toBeLessThan(1);
   });
 });
+
+describe('friction between bodies', () => {
+  it('a block sliding on a cart drags it along until they move together (momentum kept)', () => {
+    const s = emptyScene();
+    // smooth floor; rough contact between the top block and the cart
+    const cart = rect('C', 0, 0.1, 3, 1.2, 0.2);
+    const top = rect('B', -0.3, 0.25, 1, 0.2, 0.1, { vx: 2, mu: 0.4 });
+    s.elements.push(ground('G', 0, -0.06, { w: 8, h: 0.12 }), cart, top);
+    const sim = new Simulation(s);
+    const [C, B] = sim.sys.bodies;
+    // relative speed 2 m/s dies out at μg(1 + m/M) ≈ 5.2 m/s² → about 0.4 s
+    sim.run(0.15);
+    const aRel = (2 - (sim.qd[B.idx] - sim.qd[C.idx])) / 0.15;
+    expect(Math.abs(aRel - 0.4 * g * (1 + 1 / 3)) / (0.4 * g * (4 / 3))).toBeLessThan(0.08);
+    sim.run(0.6);
+    expect(sim.qd[B.idx]).toBeCloseTo(0.5, 1);
+    expect(sim.qd[C.idx]).toBeCloseTo(0.5, 1);
+    expect(sim.dissipated).toBeGreaterThan(1.2); // ½·1·2² − ½·4·0.5² = 1.5 J lost to sliding
+    expect(Math.abs(sim.driftPercent())).toBeLessThan(1);
+  });
+});
+
+describe('mouse grab', () => {
+  it('pulls a body to the cursor and books the work it does', () => {
+    const s = emptyScene();
+    s.elements.push(ground('G', 0, -0.06, { w: 8, h: 0.12 }), rect('B', 0, 0.1, 2, 0.4, 0.2));
+    const sim = new Simulation(s);
+    const b = sim.sys.bodies[0];
+    sim.sys.mouse.a = { b, lx: 0.1, ly: 0, angle: 0 };
+    for (let i = 0; i < 100; i++) { sim.sys.mouse.tx = 0.1 + i * 0.01; sim.sys.mouse.ty = 0.6; sim.run(0.01); }
+    expect(sim.q[b.idx + 1]).toBeGreaterThan(0.3); // lifted off the floor
+    sim.sys.mouse.a = null;
+    sim.run(1);
+    expect(Math.abs(sim.driftPercent())).toBeLessThan(1);
+  });
+});

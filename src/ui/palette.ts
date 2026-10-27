@@ -48,7 +48,7 @@ const GROUPS: [string, Item[]][] = [
   ]],
 ];
 
-const ALL = GROUPS.flatMap(([, items]) => items);
+export const ALL = GROUPS.flatMap(([, items]) => items);
 export const TOOL_HELP = Object.fromEntries(ALL.map((i) => [i.tool, i.help])) as Record<Tool, string>;
 export const TOOL_LABEL = Object.fromEntries(ALL.map((i) => [i.tool, i.label])) as Record<Tool, string>;
 /** Single-key shortcuts (lower case) → tool. */

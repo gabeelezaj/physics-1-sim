@@ -338,3 +338,23 @@ table.data td:first-child, table.data th:first-child { text-align: left; }
 .view-menu button.toggle { padding-left: 28px; background: none; border: none; color: var(--ink-2); }
 .view-menu button.toggle::before { left: 10px; }
 .view-menu button.toggle[aria-pressed='true'] { color: var(--accent); background: var(--accent-soft); }
+
+/* shortcuts overlay */
+#help {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(16, 24, 40, 0.35);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+#help[hidden] { display: none; }
+.help-card {
+  background: var(--panel); border-radius: 12px; border: 1px solid var(--line);
+  box-shadow: 0 20px 48px rgba(16, 24, 40, 0.2);
+  width: min(720px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 18px 22px 20px;
+}
+.help-card header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.help-card h2 { margin: 0; font-size: 17px; }
+.help-card h3 { margin: 14px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.help-cols { display: grid; grid-template-columns: 1.2fr 1fr; gap: 28px; }
+.help-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; font-size: 13px; color: var(--ink-2); }
+.help-grid kbd { justify-self: start; }
+@media (max-width: 640px) { .help-cols { grid-template-columns: 1fr; gap: 0; } }

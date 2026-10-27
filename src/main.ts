@@ -5,6 +5,7 @@ import { PRESETS } from './presets';
 import { AnalysisPanel } from './ui/analysisPanel';
 import { App } from './ui/app';
 import { Editor } from './ui/editor';
+import { initHelp } from './ui/help';
 import { PropsPanel } from './ui/props';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -14,6 +15,7 @@ const app = new App(canvas);
 const editor = new Editor(app, canvas);
 new PropsPanel(app, $('props'), editor);
 new AnalysisPanel(app);
+initHelp($('btn-help'));
 
 // ------------------------------------------------------------------ toolbar
 const playBtn = $<HTMLButtonElement>('btn-play');

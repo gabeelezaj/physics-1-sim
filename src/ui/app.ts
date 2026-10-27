@@ -2,6 +2,7 @@
 // view, selection, and the frame loop. UI modules subscribe to its events.
 
 import type { Linearization } from '../engine/analysis';
+import { ptPos } from '../engine/kin';
 import { Simulation } from '../engine/sim';
 import { System } from '../engine/system';
 import type { DynBodyEl, Scene } from '../model/types';
@@ -269,6 +270,29 @@ export class App {
     this.emit(this.tickListeners);
   }
 
+  /** Start pulling a body point towards the cursor (only while running). */
+  grabBody(id: string, p: [number, number]): boolean {
+    const b = this.sys.byId.get(id);
+    if (!b || !this.running) return false;
+    const q = this.sim.q;
+    const th = b.dof === 3 ? q[b.idx + 2] : 0;
+    const dx = p[0] - q[b.idx], dy = p[1] - q[b.idx + 1];
+    const c = Math.cos(th), sn = Math.sin(th);
+    this.sys.mouse.a = { b, lx: c * dx + sn * dy, ly: -sn * dx + c * dy, angle: 0 };
+    [this.sys.mouse.tx, this.sys.mouse.ty] = p;
+    return true;
+  }
+
+  moveGrab(p: [number, number]): void {
+    [this.sys.mouse.tx, this.sys.mouse.ty] = p;
+  }
+
+  releaseGrab(): void {
+    this.sys.mouse.a = null;
+  }
+
+  get grabbing(): boolean { return this.sys.mouse.a !== null; }
+
   /** Make sure edits apply to the initial configuration. */
   ensureEditMode(): void {
     if (!this.editing || this.modeAnim) this.reset();
@@ -363,6 +387,7 @@ export class App {
       forces,
       trails: this.showTrails && !this.modeAnim ? this.trails : null,
       velocities: this.showVelocity && !this.modeAnim ? this.sim.qd : null,
+      grab: this.grabbing ? { from: ptPos(this.sys.mouse.a!, this.sim.q), to: [this.sys.mouse.tx, this.sys.mouse.ty] } : null,
       preview: null,
       cursor: null,
       ...overlay,

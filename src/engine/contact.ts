@@ -15,7 +15,8 @@
 // lets a block meeting the knife-edge toe of a ramp ride up the slope rather
 // than hit the toe like a wall. A corner carries the full k and c, edge
 // samples 1/6 each, so two aligned faces (six edge samples) get the
-// calibrated values too.
+// calibrated values too. Friction is regularized Coulomb with the larger μ of
+// the two surfaces.
 
 import type { V2 } from '../model/shapes';
 import type { ForceEl, PointForce } from './forces';
@@ -232,7 +233,12 @@ export class ContactF implements ForceEl {
   private B: Prepared;
   private reach: number;
 
-  constructor(a: ContactSide, b: ContactSide, private k: number, private c: number) {
+  /**
+   * `mu` is the Coulomb coefficient between the two surfaces, regularized
+   * like ground friction with the pair's effective mass `meff` and the
+   * in-contact step `hStep`.
+   */
+  constructor(a: ContactSide, b: ContactSide, private k: number, private c: number, private mu = 0, private meff = 1, private hStep = 2.5e-4) {
     this.A = prepare(a);
     this.B = prepare(b);
     this.el = `${a.b?.id}:${b.b?.id ?? b.name}:contact`;
@@ -293,8 +299,8 @@ export class ContactF implements ForceEl {
     return out;
   }
 
-  /** Penetration rate at a contact (positive = going deeper). */
-  private rate(h: Hit, q: ArrayLike<number>, qd: ArrayLike<number>): number {
+  /** Velocity of A's material point at the contact relative to B's. */
+  private relVel(h: Hit, q: ArrayLike<number>, qd: ArrayLike<number>): V2 {
     const v = (b: SBody | null): V2 => {
       if (!b) return [0, 0];
       const w = b.dof === 3 ? qd[b.idx + 2] : 0;
@@ -302,7 +308,26 @@ export class ContactF implements ForceEl {
       return [qd[b.idx] - w * ry, qd[b.idx + 1] + w * rx];
     };
     const va = v(this.A.b), vb = v(this.B.b);
-    return -h.s * ((va[0] - vb[0]) * h.nx + (va[1] - vb[1]) * h.ny);
+    return [va[0] - vb[0], va[1] - vb[1]];
+  }
+
+  /** Penetration rate at a contact (positive = going deeper). */
+  private rate(h: Hit, q: ArrayLike<number>, qd: ArrayLike<number>): number {
+    const [vx, vy] = this.relVel(h, q, qd);
+    return -h.s * (vx * h.nx + vy * h.ny);
+  }
+
+  /** Friction on A (B gets the opposite), regularized Coulomb as for ground contact. */
+  private friction(h: Hit, fn: number, q: ArrayLike<number>, qd: ArrayLike<number>): V2 {
+    if (!this.mu || fn <= 0) return [0, 0];
+    const [vx, vy] = this.relVel(h, q, qd);
+    const vn = vx * h.nx + vy * h.ny;
+    const tx = vx - vn * h.nx, ty = vy - vn * h.ny;
+    const vt = Math.hypot(tx, ty);
+    if (vt < 1e-12) return [0, 0];
+    const vs = (4 * this.mu * fn * this.hStep) / this.meff;
+    const f = (this.mu * fn) / Math.sqrt(vt * vt + vs * vs);
+    return [-f * tx, -f * ty];
   }
 
   private forceOf(h: Hit, q: ArrayLike<number>, qd: ArrayLike<number>): number {
@@ -316,7 +341,8 @@ export class ContactF implements ForceEl {
     for (const h of this.hits(q)) {
       const f = this.forceOf(h, q, qd);
       if (f <= 0) continue;
-      const fx = f * h.s * h.nx, fy = f * h.s * h.ny;
+      const [ffx, ffy] = this.friction(h, f * h.s, q, qd);
+      const fx = f * h.s * h.nx + ffx, fy = f * h.s * h.ny + ffy;
       if (a) addPtForce(F, a, h.px - q[a.idx], h.py - q[a.idx + 1], fx, fy);
       if (b) addPtForce(F, b, h.px - q[b.idx], h.py - q[b.idx + 1], -fx, -fy);
     }
@@ -331,7 +357,15 @@ export class ContactF implements ForceEl {
   /** Power of everything except the conservative ½kδ² spring. */
   power(q: ArrayLike<number>, qd: ArrayLike<number>): number {
     let p = 0;
-    for (const h of this.hits(q)) p -= (this.forceOf(h, q, qd) - h.wt * this.k * h.depth) * this.rate(h, q, qd);
+    for (const h of this.hits(q)) {
+      const f = this.forceOf(h, q, qd);
+      p -= (f - h.wt * this.k * h.depth) * this.rate(h, q, qd);
+      if (f > 0 && this.mu) {
+        const [ffx, ffy] = this.friction(h, f * h.s, q, qd);
+        const [vx, vy] = this.relVel(h, q, qd);
+        p += ffx * vx + ffy * vy;
+      }
+    }
     return p;
   }
 
@@ -343,6 +377,10 @@ export class ContactF implements ForceEl {
       const fx = f * h.s * h.nx, fy = f * h.s * h.ny;
       if (a) out.push({ body: a, x: h.px, y: h.py, fx, fy, label: `${this.B.name} contact`, kind: 'contact' });
       if (b) out.push({ body: b, x: h.px, y: h.py, fx: -fx, fy: -fy, label: `${this.A.name} contact`, kind: 'contact' });
+      const [ffx, ffy] = this.friction(h, f * h.s, q, qd);
+      if (!ffx && !ffy) continue;
+      if (a) out.push({ body: a, x: h.px, y: h.py, fx: ffx, fy: ffy, label: `${this.B.name} friction`, kind: 'friction' });
+      if (b) out.push({ body: b, x: h.px, y: h.py, fx: -ffx, fy: -ffy, label: `${this.A.name} friction`, kind: 'friction' });
     }
   }
 

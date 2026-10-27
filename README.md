@@ -25,12 +25,14 @@ npm run build    # typecheck + production bundle
 - **Properties (right):** mass, inertia (leave it blank for the uniform-body value), size, initial position, angle, velocity, k, L₀, c, μ, rope length, and so on. All units are SI; angles are entered in degrees. A coordinate you type is held fixed while the constraints are re-satisfied.
 - **Scene menu** (top left): new, open, save as JSON, and the presets.
 - **Live values:** select anything to see its current state under its properties: body position, speed and energy; spring stretch and force; pin reaction; rope tension per segment and which pulleys it is on.
+- **Grab and throw:** while the simulation runs, drag any body to pull it with a soft spring; let go to throw it. The work your mouse does is booked in the energy balance.
+- **Shortcuts:** press **?** (or the ? button) for every keyboard and mouse shortcut.
 - **Duplicate:** ⌘/Ctrl D copies the selected bodies plus the joints, springs and ropes between them. **F** fits the view. Drag the side panel's left edge to resize it.
 - **Toolbar:** play/pause (Space), step 10 ms, reset (R), speed presets (0.1× to 10×, with a "CPU-limited" note if a heavy scene can't keep up), gravity, collisions, snap, force arrows, labels, presets, and save/open as JSON. The scene is also autosaved to localStorage.
 
 ### The calculations panel
 
-- **Plots:** any coordinate against time, plus kinetic energy, potential energy (relative to t = 0), total energy, and the energy W removed by damping, friction and impacts. The energy balance error (T + V + W − E₀) / max T checks the integrator even when the system is damped.
+- **Plots:** any coordinate against time, plus kinetic energy, potential energy (relative to t = 0), total energy, and the energy W removed by damping, friction and impacts (minus any work done by grabbing bodies with the mouse). The energy balance error (T + V + W − E₀) / max T checks the integrator even when the system is damped.
 - **Equilibrium & modes:** Newton's method on the KKT system finds static equilibrium. The panel picks independent coordinates (cart positions, bar angles and so on), linearizes to get **M**, **K** (and **C** if there is damping), then solves det(**K** − ω²**M**) = 0 for the natural frequencies, damping ratios and mode shapes. *Animate* plays each mode.
 - **Equations:** the generalized coordinates, the mass matrix, kinetic energy, the constrained DAE with its Baumgarte gains, every constraint equation g(q) = 0 and applied-force law with the scene's numbers, and the linearized equations of motion.
 - **Forces:** live pin reactions, rod tensions, track normal forces and moments, rope tension in each segment, spring forces, and the raw multipliers λ.
@@ -68,11 +70,13 @@ See [PLAN.md](PLAN.md) for the architecture and milestones.
 | Ramps | a block and a ball slide down a fixed frictionless incline at g sin θ; block on a sliding wedge matches A = m g sinθ cosθ/(M + m sin²θ) with horizontal momentum conserved; a block runs up onto a ramp from the floor; a body pressed into a floor–wall corner has no energy kicks |
 | Cart collisions | equal carts with e = 1 swap velocities; unequal carts with e = 0.5 match v′ = ((m₁ − e m₂)v, (1 + e)m₁v)/(m₁ + m₂); momentum conserved to 1e-6; blocks stack; a ball bounces off a block |
 | Rope leaving / catching pulleys | a mass swung over a pulley releases the rope with no energy jump or wrap flip; a sweeping rope is caught by a pulley and spins it up |
+| Friction | a block slides down a rough incline at g(sinθ − μ cosθ) and holds still when μ > tanθ; a disc rolls at ⅔ g sinθ; a block sliding on a cart decelerates relative to it at μg(1 + m/M) and both end at the momentum-conserving speed |
 | Energy balance with dissipation | damped oscillator and bouncing bar: T + V + W stays equal to E₀ |
 
 ## Limitations
 
 - Ropes are bilateral: they never go slack. The Forces tab flags any negative tension.
 - Friction on sliders is a regularized Coulomb law, μ|N| tanh(v / 1 mm/s), using N from the previous solve, so there is no true stiction.
-- Contact is frictionless: blocks slide freely along floors and each other's faces.
+- Contact friction (ground pieces and bodies each have a μ; a contact uses the larger of the two) is regularized Coulomb, so a body resting on a slope can creep by a few mm/s instead of sticking exactly.
+- Curved ramps are fixed only.
 - A point mass has no rotational coordinate, so a torsional spring on its pin does nothing.

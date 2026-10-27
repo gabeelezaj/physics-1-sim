@@ -8,7 +8,7 @@ import type { Attach, DynBodyEl, El, GroundEl, PinEl, Scene } from '../model/typ
 import { Constraint, PinC, RodC, RopeC, SliderC } from './constraints';
 import { ContactF, GroundContactF, contactGains, type BodyShape } from './contact';
 import { convexParts, localPolygon, plateInertia } from '../model/shapes';
-import { AppliedF, ForceEl, FrictionF, PointForce, SpringF, TSpringF } from './forces';
+import { AppliedF, ForceEl, FrictionF, MouseF, PointForce, SpringF, TSpringF } from './forces';
 import { APt, SBody, addPtForce, ptPos } from './kin';
 import { RopeNode } from './rope';
 
@@ -33,6 +33,8 @@ export class System {
   cons: Constraint[] = [];
   rowStart: number[] = [];
   forces: ForceEl[] = [];
+  /** Mouse grab while running (inactive until the editor sets a body point); kept out of `forces`. */
+  mouse = new MouseF();
   g: number;
   alpha: number;
   beta: number;
@@ -134,26 +136,26 @@ export class System {
     const { q } = this.initialState();
     const e0 = this.scene.settings.restitution ?? 0.5;
     const dt = this.scene.settings.dt;
-    const shapes: { b: SBody; shape: BodyShape; fixedAxle: boolean }[] = [];
+    const shapes: { b: SBody; shape: BodyShape; fixedAxle: boolean; mu: number }[] = [];
     for (const e of els) {
       const b = this.byId.get(e.id);
       if (!b || (e.kind !== 'rect' && e.kind !== 'point' && e.kind !== 'pulley') || e.collide === false) continue;
       const shape: BodyShape = e.kind === 'rect' ? { kind: 'poly', verts: localPolygon(e) }
         : { kind: 'circle', r: e.kind === 'pulley' ? e.r : e.radius };
-      shapes.push({ b, shape, fixedAxle: e.kind === 'pulley' && e.fixedAxle });
+      shapes.push({ b, shape, fixedAxle: e.kind === 'pulley' && e.fixedAxle, mu: e.mu ?? 0 });
     }
     const groundList = [...this.grounds.values()];
     const add = (what: string, f: ContactF | GroundContactF) => {
       if (f.maxDepth(q) > 1e-3) this.warnings.push(`${what} start overlapping; contact between them is off.`);
       else this.forces.push(f);
     };
-    for (const { b, shape, fixedAxle } of shapes) {
+    for (const { b, shape, fixedAxle, mu } of shapes) {
       if (fixedAxle) continue;
       const { k, c } = contactGains(b.m, dt, e0);
       // one contact with all ground pieces at once (except ones it is pinned to)
       const parts = groundList.filter((g) => !joined.has(`${b.id}|${g.id}`)).flatMap((g) => convexParts(g).map((verts) => ({
         b: null, name: g.name, shape: { kind: 'poly' as const, verts },
-        fixed: { x: g.x, y: g.y, theta: g.theta }, mu: g.mu ?? 0,
+        fixed: { x: g.x, y: g.y, theta: g.theta }, mu: Math.max(mu, g.mu ?? 0),
       })));
       if (parts.length) add(`${b.name} and the ground`, new GroundContactF({ b, name: b.name, shape }, parts, k, c, dt / 4));
     }
@@ -164,7 +166,7 @@ export class System {
         // a fixed axle acts like an immovable obstacle: use the other body's mass
         const meff = A.fixedAxle ? B.b.m : B.fixedAxle ? A.b.m : (A.b.m * B.b.m) / (A.b.m + B.b.m);
         const { k, c } = contactGains(meff, dt, e0);
-        add(`${A.b.name} and ${B.b.name}`, new ContactF({ b: A.b, name: A.b.name, shape: A.shape }, { b: B.b, name: B.b.name, shape: B.shape }, k, c));
+        add(`${A.b.name} and ${B.b.name}`, new ContactF({ b: A.b, name: A.b.name, shape: A.shape }, { b: B.b, name: B.b.name, shape: B.shape }, k, c, Math.max(A.mu, B.mu), meff, dt / 4));
       }
     }
   }
@@ -284,6 +286,7 @@ export class System {
       if (!withFriction && f instanceof FrictionF) continue;
       f.apply(q, qd, F, this.lambda);
     }
+    this.mouse.apply(q, qd, F);
   }
 
   /** Evaluate all constraint rows; returns the internal buffers (valid until the next call). */
@@ -364,7 +367,7 @@ export class System {
   dissipativePower(q: ArrayLike<number>, qd: ArrayLike<number>): number {
     let p = 0;
     for (const f of this.forces) if (f.power) p += f.power(q, qd, this.lambda);
-    return p;
+    return p + this.mouse.power(q, qd);
   }
 
   kinetic(qd: ArrayLike<number>): number {
@@ -496,6 +499,7 @@ export class System {
       if (this.g !== 0) out.push({ body: b, x: q[b.idx], y: q[b.idx + 1], fx: 0, fy: -b.m * this.g, label: `${b.name} g`, kind: 'gravity' });
     }
     for (const f of this.forces) f.report(q, qd, lam, out);
+    this.mouse.report(q, qd, lam, out);
     this.cons.forEach((con, ci) => {
       const r0 = this.rowStart[ci];
       if (con instanceof PinC) {

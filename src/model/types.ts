@@ -53,6 +53,8 @@ export interface ForceEl extends Base {
 export interface PointEl extends Base {
   /** Takes part in collisions (absent = yes). */
   collide?: boolean;
+  /** Surface friction μ; a contact uses the larger μ of the two surfaces (absent = 0). */
+  mu?: number;
   kind: 'point';
   x: number;
   y: number;
@@ -65,6 +67,8 @@ export interface PointEl extends Base {
 export interface RectEl extends Base {
   /** Takes part in collisions (absent = yes). */
   collide?: boolean;
+  /** Surface friction μ; a contact uses the larger μ of the two surfaces (absent = 0). */
+  mu?: number;
   kind: 'rect';
   x: number;
   y: number;
@@ -85,6 +89,8 @@ export interface RectEl extends Base {
 export interface PulleyEl extends Base {
   /** Takes part in collisions (absent = yes). */
   collide?: boolean;
+  /** Surface friction μ; a contact uses the larger μ of the two surfaces (absent = 0). */
+  mu?: number;
   kind: 'pulley';
   x: number;
   y: number;

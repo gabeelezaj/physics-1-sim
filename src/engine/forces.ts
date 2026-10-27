@@ -169,3 +169,38 @@ export class AppliedF implements ForceEl {
     if (this.torque && this.a.b.dof === 3) out.push({ body: this.a.b, x: q[this.a.b.idx], y: q[this.a.b.idx + 1], fx: 0, fy: 0, torque: this.torque, label: this.name, kind: 'applied' });
   }
 }
+
+/**
+ * Mouse grab: a critically damped spring (ω = 20 rad/s for the grabbed
+ * body's mass) pulling a body point towards the cursor. The cursor moves on
+ * its own, so all of this force's work is outside work; power() reports it
+ * and the energy balance stays closed while the user throws things around.
+ */
+export class MouseF implements ForceEl {
+  el = 'mouse';
+  a: APt | null = null;
+  tx = 0;
+  ty = 0;
+
+  private force(q: ArrayLike<number>, qd: ArrayLike<number>) {
+    const a = this.a;
+    if (!a?.b) return null;
+    const m = a.b.m, w = 20;
+    const p = ptPos(a, q);
+    const [vx, vy] = ptVel(a, p, qd);
+    return { p, vx, vy, fx: m * w * w * (this.tx - p.x) - 2 * m * w * vx, fy: m * w * w * (this.ty - p.y) - 2 * m * w * vy };
+  }
+  apply(q: ArrayLike<number>, qd: ArrayLike<number>, F: Float64Array): void {
+    const f = this.force(q, qd);
+    if (f) addPtForce(F, this.a!.b, f.p.rx, f.p.ry, f.fx, f.fy);
+  }
+  energy(): number { return 0; }
+  power(q: ArrayLike<number>, qd: ArrayLike<number>): number {
+    const f = this.force(q, qd);
+    return f ? f.fx * f.vx + f.fy * f.vy : 0;
+  }
+  report(q: ArrayLike<number>, qd: ArrayLike<number>, _l: ArrayLike<number>, out: PointForce[]): void {
+    const f = this.force(q, qd);
+    if (f) out.push({ body: this.a!.b!, x: f.p.x, y: f.p.y, fx: f.fx, fy: f.fy, label: 'mouse', kind: 'applied' });
+  }
+}

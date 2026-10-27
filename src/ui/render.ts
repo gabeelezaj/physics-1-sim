@@ -33,6 +33,8 @@ export interface DrawOpts {
   trails?: Map<string, number[]> | null;
   /** Draw each body's velocity vector. */
   velocities?: ArrayLike<number> | null;
+  /** Mouse grab: the held body point and the cursor it is pulled towards. */
+  grab?: { from: { x: number; y: number }; to: [number, number] } | null;
   selection: Set<string>;
   hover: string | null;
   labels: boolean;
@@ -260,6 +262,29 @@ export class Renderer {
     if (o.handles) for (const h of o.handles) this.drawHandle(h);
     if (o.marker) this.drawMarker(o.marker.p, o.marker.label);
     if (o.measure) this.drawMeasure(o.measure.p, o.measure.text);
+    if (o.grab) this.drawGrab(o.grab.from, o.grab.to);
+  }
+
+  private drawGrab(from: { x: number; y: number }, to: [number, number]): void {
+    const { ctx } = this;
+    const ax = this.sx(from.x), ay = this.sy(from.y), bx = this.sx(to[0]), by = this.sy(to[1]);
+    ctx.save();
+    ctx.strokeStyle = C.sel;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = C.sel;
+    ctx.beginPath();
+    ctx.arc(ax, ay, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(bx, by, 6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   private drawGhosts(ghosts: El[]): void {

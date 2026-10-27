@@ -20,7 +20,7 @@ interface Pending {
 }
 
 interface Drag {
-  kind: 'body' | 'ground' | 'worldpin' | 'pan' | 'gend';
+  kind: 'body' | 'ground' | 'worldpin' | 'pan' | 'gend' | 'grab';
   id?: string;
   /** For 'gend': which surface end (0 = a, 1 = b). */
   end?: 0 | 1;
@@ -248,7 +248,7 @@ export class Editor {
         html = `${name} · ${TOOL_HELP[this.tool]} · <kbd>Shift</kbd>-click to place several · ${esc}`;
       }
     } else if (!this.app.editing && !this.app.modeAnim) {
-      html = this.app.running ? 'Running · editing anything resets to t = 0' : 'Paused · editing anything resets to t = 0';
+      html = this.app.running ? 'Running · drag a body to throw it; editing resets to t = 0' : 'Paused · editing anything resets to t = 0';
     }
     this.hintEl.innerHTML = html;
     this.hintEl.hidden = !html;
@@ -620,6 +620,13 @@ export class Editor {
       }
     }
     const id = this.hit(p);
+    // while running, dragging a body throws it around instead of editing
+    if (id && this.app.running && this.app.grabBody(id, p)) {
+      this.app.select([id]);
+      this.drag = { kind: 'grab', id, startWorld: p, startScreen: screen, orig: p, moved: true };
+      this.canvas.style.cursor = 'grabbing';
+      return;
+    }
     if (!id) {
       this.app.select([]);
       this.drag = { kind: 'pan', startWorld: p, startScreen: screen, orig: [this.r.view.cx, this.r.view.cy], moved: false };
@@ -664,6 +671,10 @@ export class Editor {
     }
     const sdx = ev.clientX - d.startScreen[0], sdy = ev.clientY - d.startScreen[1];
     if (!d.moved && Math.hypot(sdx, sdy) < 3) return;
+    if (d.kind === 'grab') {
+      this.app.moveGrab(p);
+      return;
+    }
     if (d.kind === 'pan') {
       d.moved = true;
       this.r.view.cx = d.orig[0] - sdx / this.r.view.scale;
@@ -709,6 +720,7 @@ export class Editor {
 
   private onUp(ev: PointerEvent): void {
     this.canvas.releasePointerCapture(ev.pointerId);
+    if (this.drag?.kind === 'grab') { this.app.releaseGrab(); this.canvas.style.cursor = 'grab'; }
     this.drag = null;
   }
 

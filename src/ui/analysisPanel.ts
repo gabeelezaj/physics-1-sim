@@ -165,13 +165,13 @@ export class AnalysisPanel {
     const e = sim.energy();
     const drift = sim.driftPercent();
     // penalty impacts are integrated less exactly than smooth motion
-    const ok = Math.abs(drift) < (sim.dissipated > 1e-9 ? 1 : 0.1);
+    const ok = Math.abs(drift) < (Math.abs(sim.dissipated) > 1e-9 ? 1 : 0.1);
     this.statsEl.innerHTML = [
       ['t', `${sim.t.toFixed(3)} s`],
       ['T (kinetic)', `${f(e.kinetic)} J`],
       ['V (potential)', `${f(e.potential)} J`],
       ['E = T + V', `${f(e.total, 6)} J`],
-      ['dissipated W', `${f(sim.dissipated)} J`],
+      ['W = lost − mouse work', `${f(sim.dissipated)} J`],
       ['balance error', `<span class="${ok ? 'drift-ok' : 'drift-bad'}">${drift.toExponential(2)} %</span>`],
     ].map(([k, v]) => `<div class="stat"><span>${k}</span><span>${v}</span></div>`).join('');
     const series = this.selected

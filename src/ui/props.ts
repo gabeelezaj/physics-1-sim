@@ -36,19 +36,20 @@ const VEL: Field[] = [
 ];
 /** Absent means true, so it is shown as `value !== false`. */
 const COLLIDE: Field = { key: 'collide', label: 'collides', kind: 'bool' };
+const MU: Field = { key: 'mu', label: 'friction μ', step: 0.05, min: 0 };
 const OMEGA: Field = { key: 'omega', label: 'spin θ̇', unit: 'rad/s', step: 0.1, init: true };
 
 const FIELDS: Record<El['kind'], Field[]> = {
   ground: [],
-  point: [{ key: 'm', label: 'mass', unit: 'kg', step: 0.1, min: 1e-6 }, { key: 'radius', label: 'radius', unit: 'm', step: 0.01, min: 0.005 }, COLLIDE, ...POSE, ...VEL],
+  point: [{ key: 'm', label: 'mass', unit: 'kg', step: 0.1, min: 1e-6 }, { key: 'radius', label: 'radius', unit: 'm', step: 0.01, min: 0.005 }, COLLIDE, MU, ...POSE, ...VEL],
   rect: [
     { key: 'm', label: 'mass', unit: 'kg', step: 0.1, min: 1e-6 }, { key: 'I', label: 'I_G', unit: 'kg·m²', kind: 'auto', step: 0.01 },
     { key: 'w', label: 'length', unit: 'm', step: 0.05, min: 0.01 }, { key: 'h', label: 'height', unit: 'm', step: 0.02, min: 0.01 },
-    COLLIDE, ...POSE, ANGLE, ...VEL, OMEGA,
+    COLLIDE, MU, ...POSE, ANGLE, ...VEL, OMEGA,
   ],
   pulley: [
     { key: 'm', label: 'mass', unit: 'kg', step: 0.1, min: 1e-6 }, { key: 'I', label: 'I_O', unit: 'kg·m²', kind: 'auto', step: 0.001 },
-    { key: 'r', label: 'radius', unit: 'm', step: 0.01, min: 0.01 }, { key: 'fixedAxle', label: 'fixed axle', kind: 'bool' }, COLLIDE,
+    { key: 'r', label: 'radius', unit: 'm', step: 0.01, min: 0.01 }, { key: 'fixedAxle', label: 'fixed axle', kind: 'bool' }, COLLIDE, MU,
     ...POSE, ANGLE, ...VEL, OMEGA,
   ],
   rod: [{ key: 'length', label: 'length', unit: 'm', step: 0.05, min: 1e-4 }],
@@ -196,7 +197,7 @@ export class PropsPanel {
       for (const f of fields) {
         const raw = getPath(e, f.key);
         const kind = f.kind ?? 'num';
-        const shown = kind === 'deg' ? (raw * 180) / Math.PI : f.key === 'collide' ? raw !== false : raw;
+        const shown = kind === 'deg' ? (raw * 180) / Math.PI : f.key === 'collide' ? raw !== false : f.key === 'mu' ? raw ?? 0 : raw;
         grid.appendChild(this.input(f.label, kind, shown, (v) => {
           let val: any = v;
           if (kind === 'deg') val = (Number(v) * Math.PI) / 180;
