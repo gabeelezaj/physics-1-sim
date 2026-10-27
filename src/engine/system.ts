@@ -304,7 +304,7 @@ export class System {
 
   /**
    * Project (q, q̇) onto the constraint manifold with a mass-weighted
-   * minimum-norm Gauss–Newton. Locked DOFs are not moved. Velocities whose
+   * minimum-norm Gauss–Newton. Locked DOFs move only as a last resort. Velocities whose
    * initial value is non-zero are strongly preferred to stay as given.
    * Returns the final position residual.
    */
@@ -313,7 +313,8 @@ export class System {
     if (m === 0) return 0;
     const holo = this.holoMask();
     const W = new Float64Array(n);
-    for (let k = 0; k < n; k++) W[k] = lockPos.has(k) ? 0 : this.invMass[k];
+    // soft locks: a locked DOF only moves if nothing else can satisfy g(q) = 0
+    for (let k = 0; k < n; k++) W[k] = this.invMass[k] * (lockPos.has(k) ? 1e-6 : 1);
     const zero = new Float64Array(n);
     const A = new Float64Array(m * m), rhs = new Float64Array(m), mu = new Float64Array(m);
     const resid = () => {
