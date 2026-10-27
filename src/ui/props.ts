@@ -233,7 +233,7 @@ export class PropsPanel {
         this.app.commit((s) => { const t = s.elements.find((x) => x.id === e.id) as any; t.length = L; });
       }));
     }
-    if (e.kind === 'ground') {
+    if (e.kind === 'ground' && e.shape !== 'wedge') {
       actions.appendChild(this.button('Flip solid side', () => this.app.commit((s) => {
         const t = s.elements.find((x) => x.id === e.id) as GroundEl;
         const g = groundEnds(t);
