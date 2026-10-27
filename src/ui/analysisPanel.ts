@@ -154,7 +154,8 @@ export class AnalysisPanel {
     const n = sim.sys.n;
     const e = sim.energy();
     const drift = sim.driftPercent();
-    const ok = Math.abs(drift) < 0.1;
+    // penalty impacts are integrated less exactly than smooth motion
+    const ok = Math.abs(drift) < (sim.dissipated > 1e-9 ? 1 : 0.1);
     this.statsEl.innerHTML = [
       ['t', `${sim.t.toFixed(3)} s`],
       ['T (kinetic)', `${f(e.kinetic)} J`],

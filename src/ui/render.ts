@@ -697,7 +697,7 @@ export class Renderer {
       ctx.lineTo(X + ux * len, Y + uy * len);
       ctx.stroke();
       this.arrowHead(X + ux * len, Y + uy * len, ux, uy);
-      ctx.fillText(`${mag.toPrecision(3)} N`, X + ux * len + 4, Y + uy * len - 4);
+      if (len > 28) ctx.fillText(`${mag.toPrecision(3)} N`, X + ux * len + 4, Y + uy * len - 4);
     }
   }
 
