@@ -7,39 +7,59 @@
   </head>
   <body>
     <header id="toolbar">
-      <div class="brand">Mechanism Sandbox</div>
-      <div class="group">
-        <button id="btn-play" class="primary" title="Play / pause (Space)">▶ Play</button>
-        <button id="btn-step" title="Advance 10 ms">Step</button>
-        <button id="btn-reset" title="Back to initial conditions (R)">Reset</button>
-        <label class="slider-label" title="Simulation speed">
-          <span>Speed</span>
-          <input id="time-scale" type="range" min="-3" max="1" step="0.05" value="0" />
-          <span id="time-scale-val" class="mono">1.00×</span>
-        </label>
-        <span id="time" class="mono">t = 0.000 s</span>
+      <div class="brand" title="Mechanism Sandbox">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="7" r="4" /><path d="M8 7v12M16 7v8" /><rect x="5.5" y="19" width="5" height="3" rx="0.5" /><rect x="14" y="15" width="4" height="3" rx="0.5" /></svg>
+        <span>Mechanism Sandbox</span>
       </div>
-      <div class="group">
-        <label class="check"><input id="gravity-on" type="checkbox" checked /> Gravity</label>
-        <label class="num"><span>g</span><input id="gravity-g" type="number" step="0.01" value="9.81" /><span class="unit">m/s²</span></label>
+
+      <div class="group transport">
+        <button id="btn-play" class="primary" title="Play / pause (Space)"></button>
+        <button id="btn-step" class="icon" title="Step forward 10 ms">
+          <svg viewBox="0 0 24 24"><path d="M6 5l9 7-9 7z" fill="currentColor" /><rect x="16" y="5" width="2.5" height="14" fill="currentColor" /></svg>
+        </button>
+        <button id="btn-reset" class="icon" title="Reset to t = 0 (R)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12a8 8 0 1 0 2.4-5.7" /><path d="M4 4v4.5h4.5" /></svg>
+        </button>
+        <div class="clock">
+          <span id="time" class="mono">0.000 s</span>
+          <span id="rate"></span>
+        </div>
       </div>
+
       <div class="group">
-        <label class="check"><input id="snap" type="checkbox" checked /> Snap</label>
-        <label class="check"><input id="show-fbd" type="checkbox" /> FBD</label>
-        <label class="check"><input id="show-labels" type="checkbox" checked /> Labels</label>
+        <span class="group-label">Speed</span>
+        <div class="seg" id="speed-seg" role="radiogroup" aria-label="Simulation speed"></div>
+      </div>
+
+      <div class="group">
+        <button id="tg-gravity" class="toggle" aria-pressed="true" title="Gravity on/off">Gravity</button>
+        <label class="num" title="Gravitational acceleration"><input id="gravity-g" type="number" step="0.01" value="9.81" /><span class="unit">m/s²</span></label>
+        <button id="tg-contact" class="toggle" aria-pressed="true" title="Bodies collide with walls and floors">Collisions</button>
+      </div>
+
+      <div class="group">
+        <button id="tg-snap" class="toggle" aria-pressed="true" title="Snap to grid, 15° angles and body features">Snap</button>
+        <button id="tg-fbd" class="toggle" aria-pressed="false" title="Free body diagram: force arrows on every body">Forces</button>
+        <button id="tg-labels" class="toggle" aria-pressed="true" title="Show element names">Labels</button>
         <button id="btn-fit" title="Frame the whole scene">Fit</button>
       </div>
+
       <div class="group">
-        <button id="btn-undo" title="Undo (Ctrl/⌘ Z)">Undo</button>
-        <button id="btn-redo" title="Redo (Ctrl/⌘ Shift Z)">Redo</button>
+        <button id="btn-undo" class="icon" title="Undo (⌘/Ctrl Z)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></svg>
+        </button>
+        <button id="btn-redo" class="icon" title="Redo (⌘/Ctrl Shift Z)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5" /><path d="M20 9H10a6 6 0 0 0 0 12h3" /></svg>
+        </button>
       </div>
+
       <div class="group">
         <select id="preset-select" title="Load a preset scene">
           <option value="">Presets…</option>
         </select>
-        <button id="btn-new">New</button>
+        <button id="btn-new" title="Start an empty scene">New</button>
         <button id="btn-save" title="Download the scene as JSON">Save</button>
-        <button id="btn-load" title="Load a scene JSON">Load</button>
+        <button id="btn-load" title="Open a scene JSON file">Open</button>
         <input id="file-input" type="file" accept="application/json,.json" hidden />
       </div>
     </header>
@@ -47,9 +67,20 @@
       <aside id="palette"></aside>
       <section id="stage">
         <canvas id="canvas"></canvas>
-        <div id="hint"></div>
+        <div id="tool-hint" hidden></div>
+        <div id="coords" class="mono"></div>
         <div id="warnings"></div>
         <div id="mode-banner" hidden></div>
+        <div id="empty-state" hidden>
+          <h2>Build a mechanism</h2>
+          <p>Drag parts from the left onto the canvas, or start from one of the classic problems:</p>
+          <div class="empty-presets"></div>
+          <ol>
+            <li>Draw a floor or wall with <b>Ground</b> <kbd>G</kbd>: click two points.</li>
+            <li>Add bodies, then connect them with pins, rods, springs and ropes.</li>
+            <li>Press <kbd>Space</kbd> to run. Open <b>Equilibrium &amp; modes</b> for the math.</li>
+          </ol>
+        </div>
       </section>
       <aside id="side">
         <section id="props" class="panel"></section>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Simulation } from '../src/engine/sim';
 import { System } from '../src/engine/system';
-import { at, ground, pin, point, rect } from '../src/model/factory';
+import { at, ground, pin, point, rect, spring } from '../src/model/factory';
 import { emptyScene } from '../src/model/types';
 
 /** Floor surface at y = 0. */
@@ -79,5 +79,29 @@ describe('ground contact', () => {
     expect(new System(s).warnings.join(' ')).toMatch(/starts inside/);
     s.settings.contact = false;
     expect(new System(s).forces.length).toBe(0);
+  });
+});
+
+describe('energy balance with dissipation', () => {
+  it('a damped spring–mass: T + V + W stays equal to E₀', () => {
+    const s = emptyScene();
+    s.gravity.on = false;
+    const m = point('m1', 0.3, 0, 1, { radius: 0.05 });
+    s.elements.push(m, spring('k1', at(null, -0.7, 0), at(m.id, 0, 0), 100, 0.8, 1.5));
+    const sim = new Simulation(s);
+    let worst = 0;
+    sim.run(10, (sm) => { worst = Math.max(worst, Math.abs(sm.driftPercent())); });
+    expect(sim.dissipated).toBeGreaterThan(0.9 * sim.E0); // most of the energy is gone
+    expect(worst).toBeLessThan(0.01);
+  });
+
+  it('a bar bouncing to rest on the floor: impacts are accounted for', () => {
+    const s = emptyScene();
+    s.elements.push(floor(), rect('B1', 0, 0.6, 1, 0.8, 0.06, { theta: 0.5, omega: 3 }));
+    const sim = new Simulation(s);
+    let worst = 0;
+    sim.run(4, (sm) => { worst = Math.max(worst, Math.abs(sm.driftPercent())); });
+    expect(sim.dissipated).toBeGreaterThan(0);
+    expect(worst).toBeLessThan(0.5);
   });
 });

@@ -23,6 +23,8 @@ export interface ForceEl {
   apply(q: ArrayLike<number>, qd: ArrayLike<number>, F: Float64Array, lambda: ArrayLike<number>): void;
   energy(q: ArrayLike<number>): number;
   report(q: ArrayLike<number>, qd: ArrayLike<number>, lambda: ArrayLike<number>, out: PointForce[]): void;
+  /** Power of the non-conservative part of the force (≤ 0 when dissipating). */
+  power?(q: ArrayLike<number>, qd: ArrayLike<number>, lambda: ArrayLike<number>): number;
 }
 
 /** Linear spring-damper between two points: tension f = k(L − L0) + c L̇. */
@@ -49,6 +51,16 @@ export class SpringF implements ForceEl {
     if (!t) return;
     addPtForce(F, this.a.b, t.pa.rx, t.pa.ry, t.f * t.ux, t.f * t.uy);
     addPtForce(F, this.b.b, t.pb.rx, t.pb.ry, -t.f * t.ux, -t.f * t.uy);
+  }
+  power(q: ArrayLike<number>, qd: ArrayLike<number>): number {
+    if (this.c === 0) return 0;
+    const pa = ptPos(this.a, q), pb = ptPos(this.b, q);
+    const dx = pb.x - pa.x, dy = pb.y - pa.y;
+    const L = Math.hypot(dx, dy);
+    if (L < 1e-12) return 0;
+    const va = ptVel(this.a, pa, qd), vb = ptVel(this.b, pb, qd);
+    const Ldot = (dx * (vb[0] - va[0]) + dy * (vb[1] - va[1])) / L;
+    return -this.c * Ldot * Ldot;
   }
   energy(q: ArrayLike<number>): number {
     const pa = ptPos(this.a, q), pb = ptPos(this.b, q);
@@ -78,6 +90,10 @@ export class TSpringF implements ForceEl {
     const tau = this.torque(q, qd);
     if (this.a.b && this.a.b.dof === 3) F[this.a.b.idx + 2] += tau;
     if (this.b.b && this.b.b.dof === 3) F[this.b.b.idx + 2] -= tau;
+  }
+  power(_q: ArrayLike<number>, qd: ArrayLike<number>): number {
+    const dd = omegaOf(this.a, qd) - omegaOf(this.b, qd);
+    return -this.c * dd * dd;
   }
   energy(q: ArrayLike<number>): number {
     const d = angleOf(this.a, q) - angleOf(this.b, q) - this.theta0;
@@ -117,6 +133,12 @@ export class FrictionF implements ForceEl {
   }
   energy(): number {
     return 0;
+  }
+  power(q: ArrayLike<number>, qd: ArrayLike<number>, lambda: ArrayLike<number>): number {
+    if (this.mu === 0) return 0;
+    const r = this.force(q, qd, lambda);
+    const v = ptVel(this.a, r.p, qd);
+    return r.fx * v[0] + r.fy * v[1];
   }
   report(q: ArrayLike<number>, qd: ArrayLike<number>, lambda: ArrayLike<number>, out: PointForce[]): void {
     if (this.mu === 0 || !this.a.b) return;

@@ -95,11 +95,12 @@ export class AnalysisPanel {
           <span class="chip"><i style="background:${PALETTE[0]}"></i>kinetic T</span>
           <span class="chip"><i style="background:${PALETTE[1]}"></i>potential ΔV</span>
           <span class="chip"><i style="background:#111"></i>total ΔE</span>
+          <span class="chip"><i style="background:${PALETTE[3]}"></i>dissipated W</span>
         </div>
         <canvas id="plot-energy"></canvas>
       </div>
       <div class="plot-box">
-        <div class="plot-head"><span class="section-title">Energy drift</span><span class="muted">(E − E₀) / max T, %</span></div>
+        <div class="plot-head"><span class="section-title">Energy balance error</span><span class="muted">(T + V + W − E₀) / max T, %</span></div>
         <canvas id="plot-drift" style="height:110px"></canvas>
       </div>`;
     this.statsEl = root.querySelector('#stats')!;
@@ -159,7 +160,8 @@ export class AnalysisPanel {
       ['T (kinetic)', `${f(e.kinetic)} J`],
       ['V (potential)', `${f(e.potential)} J`],
       ['E = T + V', `${f(e.total, 6)} J`],
-      ['drift', `<span class="${ok ? 'drift-ok' : 'drift-bad'}">${drift.toExponential(2)} %</span>`],
+      ['dissipated W', `${f(sim.dissipated)} J`],
+      ['balance error', `<span class="${ok ? 'drift-ok' : 'drift-bad'}">${drift.toExponential(2)} %</span>`],
     ].map(([k, v]) => `<div class="stat"><span>${k}</span><span>${v}</span></div>`).join('');
     const series = this.selected
       .map((name, i) => ({ name, i, k: rec.names.indexOf(name) }))
@@ -170,15 +172,17 @@ export class AnalysisPanel {
     const pe0 = pe[0] ?? 0;
     const dpe = pe.map((v) => v - pe0);
     const de = dpe.map((v, i) => v + ke[i]);
+    const W = rec.ch[n + 3] ?? [];
     this.energyPlot.draw(rec.t, [
       { label: 'T', color: PALETTE[0], data: ke },
       { label: 'ΔV', color: PALETTE[1], data: dpe },
       { label: 'ΔE', color: '#111', data: de },
+      { label: 'W', color: PALETTE[3], data: W },
     ]);
     const ref = Math.max(sim.keMax, 1e-12);
     const E0 = sim.E0;
     const tot = rec.ch[n + 2] ?? [];
-    this.driftPlot.draw(rec.t, [{ label: 'drift', color: '#7c3aed', data: tot.map((v) => (100 * (v - E0)) / ref) }]);
+    this.driftPlot.draw(rec.t, [{ label: 'balance', color: '#7c3aed', data: tot.map((v, i) => (100 * (v + (W[i] ?? 0) - E0)) / ref) }]);
   }
 
   // ------------------------------------------------------------------ modes

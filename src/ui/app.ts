@@ -19,14 +19,14 @@ export interface Lock {
 /** Time series recorded while the simulation runs (for the plots). */
 export class Recorder {
   t: number[] = [];
-  /** One array per coordinate, then KE, PE, E. */
+  /** One array per coordinate, then KE, PE, E, dissipated energy. */
   ch: number[][] = [];
   names: string[] = [];
   maxSamples = 12000;
   lastT = -Infinity;
 
   reset(sim: Simulation): void {
-    this.names = [...sim.sys.coords.map((c) => c.name), 'KE', 'PE', 'E'];
+    this.names = [...sim.sys.coords.map((c) => c.name), 'KE', 'PE', 'E', 'W'];
     this.t = [];
     this.ch = this.names.map(() => []);
     this.lastT = -Infinity;
@@ -43,6 +43,7 @@ export class Recorder {
     this.ch[n].push(e.kinetic);
     this.ch[n + 1].push(e.potential);
     this.ch[n + 2].push(e.total);
+    this.ch[n + 3].push(sim.dissipated);
     if (this.t.length > this.maxSamples) {
       // decimate the older half to keep memory bounded
       const keep = (arr: number[]) => arr.filter((_, i) => i % 2 === 0 || i > arr.length / 2);
@@ -87,6 +88,9 @@ export class App {
   private stateListeners: Listener[] = [];
   private acc = 0;
   private lastFrame = 0;
+  /** Measured simulated-seconds per real second while running (null when idle). */
+  achievedScale: number | null = null;
+  private rateWin = { real: 0, sim: 0 };
   private needsDraw = true;
   editorOverlay: (() => Partial<import('./render').DrawOpts>) | null = null;
 
@@ -212,6 +216,8 @@ export class App {
     this.running = true;
     this.lastFrame = performance.now();
     this.acc = 0;
+    this.achievedScale = null;
+    this.rateWin = { real: 0, sim: 0 };
     this.emit(this.stateListeners);
   }
 
@@ -275,6 +281,7 @@ export class App {
       const real = Math.min(0.1, (now - this.lastFrame) / 1000);
       this.acc += real * this.timeScale;
       const dt = this.sim.dt;
+      const simBefore = this.sim.t;
       const t0 = performance.now();
       let steps = 0;
       while (this.acc >= dt) {
@@ -284,6 +291,12 @@ export class App {
         steps++;
         // stay interactive if the system is too heavy for real time
         if ((steps & 63) === 0 && performance.now() - t0 > 30) { this.acc = 0; break; }
+      }
+      this.rateWin.real += real;
+      this.rateWin.sim += this.sim.t - simBefore;
+      if (this.rateWin.real > 0.5) {
+        this.achievedScale = this.rateWin.sim / this.rateWin.real;
+        this.rateWin = { real: 0, sim: 0 };
       }
       if (!this.sim.q.every(Number.isFinite)) {
         this.running = false;

@@ -12,6 +12,8 @@ export class Simulation {
   /** Total energy at t = 0 and the largest kinetic energy seen (drift reference). */
   E0 = 0;
   keMax = 0;
+  /** Energy removed so far by damping, friction and impacts (≥ 0 when dissipating). */
+  dissipated = 0;
   assemblyResidual = 0;
 
   private k: Float64Array[];
@@ -42,11 +44,15 @@ export class Simulation {
     return { kinetic, potential, total: kinetic + potential };
   }
 
-  /** Energy drift relative to the largest kinetic energy observed so far. */
+  /**
+   * Energy-balance error relative to the largest kinetic energy so far:
+   * (T + V + dissipated − E₀) / max T. Zero for exact integration, with or
+   * without damping.
+   */
   driftPercent(): number {
     const e = this.energy();
     const ref = Math.max(this.keMax, 1e-12);
-    return (100 * (e.total - this.E0)) / ref;
+    return (100 * (e.total + this.dissipated - this.E0)) / ref;
   }
 
   step(h = this.dt): void {
@@ -57,18 +63,23 @@ export class Simulation {
 
     k1q.set(qd);
     sys.accel(q, qd, k1v);
+    const p1 = sys.dissipativePower(q, qd);
 
     for (let i = 0; i < n; i++) { tq[i] = q[i] + 0.5 * h * k1q[i]; tv[i] = qd[i] + 0.5 * h * k1v[i]; }
     k2q.set(tv);
     sys.accel(tq, tv, k2v);
+    const p2 = sys.dissipativePower(tq, tv);
 
     for (let i = 0; i < n; i++) { tq[i] = q[i] + 0.5 * h * k2q[i]; tv[i] = qd[i] + 0.5 * h * k2v[i]; }
     k3q.set(tv);
     sys.accel(tq, tv, k3v);
+    const p3 = sys.dissipativePower(tq, tv);
 
     for (let i = 0; i < n; i++) { tq[i] = q[i] + h * k3q[i]; tv[i] = qd[i] + h * k3v[i]; }
     k4q.set(tv);
     sys.accel(tq, tv, k4v);
+    const p4 = sys.dissipativePower(tq, tv);
+    this.dissipated -= (h / 6) * (p1 + 2 * p2 + 2 * p3 + p4);
 
     for (let i = 0; i < n; i++) {
       q[i] += (h / 6) * (k1q[i] + 2 * k2q[i] + 2 * k3q[i] + k4q[i]);

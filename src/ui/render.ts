@@ -19,6 +19,14 @@ export interface Preview {
 }
 
 export interface DrawOpts {
+  /** Translucent elements not in the scene yet (placement previews). */
+  ghosts?: El[];
+  /** Snap target for connector tools. */
+  marker?: { p: [number, number]; label: string } | null;
+  /** Drag handles (screen squares) at world points. */
+  handles?: [number, number][];
+  /** Measurement label near a point, e.g. "1.20 m · 90°". */
+  measure?: { p: [number, number]; text: string } | null;
   selection: Set<string>;
   hover: string | null;
   labels: boolean;
@@ -182,7 +190,7 @@ export class Renderer {
     }
 
     for (const e of els) {
-      if (e.kind === 'rect') this.drawRect(e.id, e.w, e.h, scene, sys, q, strokeFor(e), widthFor(e, 1.6));
+      if (e.kind === 'rect') this.drawRect(Renderer.pose(scene, sys, q, e.id)!, e.w, e.h, strokeFor(e), widthFor(e, 1.6));
     }
     for (const e of els) {
       if (e.kind === 'pulley') {
@@ -235,7 +243,78 @@ export class Renderer {
 
     if (o.labels) this.drawLabels(scene, sys, q);
     if (o.forces) this.drawForces(o.forces);
+    if (o.ghosts?.length) this.drawGhosts(o.ghosts);
     if (o.preview) this.drawPreview(o.preview, o.cursor);
+    if (o.handles) for (const h of o.handles) this.drawHandle(h);
+    if (o.marker) this.drawMarker(o.marker.p, o.marker.label);
+    if (o.measure) this.drawMeasure(o.measure.p, o.measure.text);
+  }
+
+  private drawGhosts(ghosts: El[]): void {
+    const { ctx } = this;
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    for (const e of ghosts) {
+      if (e.kind === 'ground') this.drawGround(e, C.sel, 2);
+      else if (e.kind === 'rect') this.drawRect({ x: e.x, y: e.y, theta: e.theta }, e.w, e.h, C.sel, 1.6);
+      else if (e.kind === 'pulley') this.drawPulley({ x: e.x, y: e.y, theta: e.theta }, e.r, e.fixedAxle, C.sel, 1.6);
+      else if (e.kind === 'point') {
+        ctx.beginPath();
+        ctx.arc(this.sx(e.x), this.sy(e.y), Math.max(4, e.radius * this.view.scale), 0, Math.PI * 2);
+        ctx.fillStyle = C.fillDark;
+        ctx.fill();
+        ctx.strokeStyle = C.sel;
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  private drawHandle(p: [number, number]): void {
+    const { ctx } = this;
+    const X = this.sx(p[0]), Y = this.sy(p[1]);
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = C.sel;
+    ctx.lineWidth = 1.5;
+    ctx.fillRect(X - 5, Y - 5, 10, 10);
+    ctx.strokeRect(X - 5, Y - 5, 10, 10);
+  }
+
+  private drawMarker(p: [number, number], label: string): void {
+    const { ctx } = this;
+    const X = this.sx(p[0]), Y = this.sy(p[1]);
+    ctx.beginPath();
+    ctx.arc(X, Y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(37, 99, 235, 0.15)';
+    ctx.fill();
+    ctx.strokeStyle = C.sel;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(X, Y, 2.2, 0, Math.PI * 2);
+    ctx.fillStyle = C.sel;
+    ctx.fill();
+    if (label) this.tag(X + 10, Y - 12, label);
+  }
+
+  private drawMeasure(p: [number, number], text: string): void {
+    this.tag(this.sx(p[0]) + 12, this.sy(p[1]) + 16, text);
+  }
+
+  /** Small rounded label box in screen space. */
+  private tag(x: number, y: number, text: string): void {
+    const { ctx } = this;
+    ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+    const w = ctx.measureText(text).width + 10;
+    ctx.fillStyle = 'rgba(17, 24, 39, 0.85)';
+    ctx.beginPath();
+    ctx.roundRect(x, y - 9, w, 18, 4);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillText(text, x + 5, y);
   }
 
   private line(x0: number, y0: number, x1: number, y1: number): void {
@@ -271,7 +350,7 @@ export class Renderer {
     return [this.sx(p.x + c * lx - s * ly), this.sy(p.y + s * lx + c * ly)];
   }
 
-  private drawGround(g: GroundEl, stroke: string, lw: number): void {
+  drawGround(g: GroundEl, stroke: string, lw: number): void {
     const { ctx } = this;
     const p = { x: g.x, y: g.y, theta: g.theta };
     const hw = g.w / 2, hh = g.h / 2;
@@ -306,9 +385,8 @@ export class Renderer {
     ctx.stroke();
   }
 
-  private drawRect(id: string, w: number, h: number, scene: Scene, sys: System, q: ArrayLike<number>, stroke: string, lw: number): void {
+  private drawRect(p: Pose, w: number, h: number, stroke: string, lw: number): void {
     const { ctx } = this;
-    const p = Renderer.pose(scene, sys, q, id)!;
     const hw = w / 2, hh = h / 2;
     const pts = [this.local(p, -hw, -hh), this.local(p, hw, -hh), this.local(p, hw, hh), this.local(p, -hw, hh)];
     ctx.beginPath();

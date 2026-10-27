@@ -90,6 +90,14 @@ export class Plot {
       ctx.restore();
     }
 
+    if (n < 2) {
+      ctx.fillStyle = '#98a2b3';
+      ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Press Play to record', L + pw / 2, T + ph / 2);
+      return;
+    }
     ctx.save();
     ctx.beginPath();
     ctx.rect(L, T, pw, ph);

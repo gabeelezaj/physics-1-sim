@@ -326,6 +326,13 @@ export class System {
     for (let k = 0; k < n; k++) qdd[k] *= invMass[k];
   }
 
+  /** Power of all non-conservative applied forces (damping, friction, impacts). */
+  dissipativePower(q: ArrayLike<number>, qd: ArrayLike<number>): number {
+    let p = 0;
+    for (const f of this.forces) if (f.power) p += f.power(q, qd, this.lambda);
+    return p;
+  }
+
   kinetic(qd: ArrayLike<number>): number {
     let s = 0;
     for (let k = 0; k < this.n; k++) s += this.mass[k] * qd[k] * qd[k];

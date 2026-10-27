@@ -2,7 +2,8 @@
 // settings when nothing is selected. SI units throughout; angles in degrees.
 
 import { ropeGeometry } from '../engine/rope';
-import type { Attach, El, Scene } from '../model/types';
+import { groundEnds, groundFromEnds } from '../model/ground';
+import type { Attach, El, GroundEl, Scene } from '../model/types';
 import { App, CoordKey } from './app';
 import type { Editor } from './editor';
 import { Renderer } from './render';
@@ -18,21 +19,23 @@ interface Field {
   min?: number;
   lock?: CoordKey[];
   wide?: boolean;
+  /** Fields describing the state at t = 0 are grouped separately. */
+  init?: boolean;
 }
 
 const POSE: Field[] = [
-  { key: 'x', label: 'x₀', unit: 'm', step: 0.05, lock: ['x'] },
-  { key: 'y', label: 'y₀', unit: 'm', step: 0.05, lock: ['y'] },
+  { key: 'x', label: 'x', unit: 'm', step: 0.05, lock: ['x'], init: true },
+  { key: 'y', label: 'y', unit: 'm', step: 0.05, lock: ['y'], init: true },
 ];
-const ANGLE: Field = { key: 'theta', label: 'θ₀', unit: '°', kind: 'deg', step: 1, lock: ['theta'] };
+const ANGLE: Field = { key: 'theta', label: 'angle θ', unit: '°', kind: 'deg', step: 1, lock: ['theta'], init: true };
 const VEL: Field[] = [
-  { key: 'vx', label: 'ẋ₀', unit: 'm/s', step: 0.1 },
-  { key: 'vy', label: 'ẏ₀', unit: 'm/s', step: 0.1 },
+  { key: 'vx', label: 'velocity ẋ', unit: 'm/s', step: 0.1, init: true },
+  { key: 'vy', label: 'velocity ẏ', unit: 'm/s', step: 0.1, init: true },
 ];
-const OMEGA: Field = { key: 'omega', label: 'θ̇₀', unit: 'rad/s', step: 0.1 };
+const OMEGA: Field = { key: 'omega', label: 'spin θ̇', unit: 'rad/s', step: 0.1, init: true };
 
 const FIELDS: Record<El['kind'], Field[]> = {
-  ground: [...POSE, ANGLE, { key: 'w', label: 'width', unit: 'm', step: 0.1, min: 0.05 }, { key: 'h', label: 'thickness', unit: 'm', step: 0.02, min: 0.01 }],
+  ground: [],
   point: [{ key: 'm', label: 'mass', unit: 'kg', step: 0.1, min: 1e-6 }, { key: 'radius', label: 'radius (draw)', unit: 'm', step: 0.01, min: 0.005 }, ...POSE, ...VEL],
   rect: [
     { key: 'm', label: 'mass', unit: 'kg', step: 0.1, min: 1e-6 }, { key: 'I', label: 'I_G', unit: 'kg·m²', kind: 'auto', step: 0.01 },
@@ -112,11 +115,13 @@ export class PropsPanel {
       this.input('Time step', 'num', s.settings.dt * 1000, (v) => this.app.commit((sc) => (sc.settings.dt = Math.max(1e-5, Number(v) / 1000))), { unit: 'ms', step: 0.1, key: 'dt' }),
       this.input('Baumgarte α', 'num', s.settings.alpha, (v) => this.app.commit((sc) => (sc.settings.alpha = Number(v))), { unit: '1/s', step: 1, key: 'alpha' }),
       this.input('Baumgarte β', 'num', s.settings.beta, (v) => this.app.commit((sc) => (sc.settings.beta = Number(v))), { unit: '1/s', step: 1, key: 'beta' }),
+      this.input('Ground collisions', 'bool', s.settings.contact !== false, (v) => this.app.commit((sc) => (sc.settings.contact = !!v)), { key: 'contact' }),
+      this.input('Restitution e', 'num', s.settings.restitution ?? 0.5, (v) => this.app.commit((sc) => (sc.settings.restitution = Math.min(1, Math.max(0, Number(v))))), { step: 0.1, key: 'restitution' }),
     );
     this.root.appendChild(grid);
     const note = document.createElement('div');
     note.className = 'props-note';
-    note.textContent = 'Select an element to edit it. Initial positions you type are held while the rest of the mechanism re-assembles around them.';
+    note.textContent = 'Select an element to edit it. Positions you type are held while the rest of the mechanism re-assembles around them. Restitution 1 = perfectly elastic bounces off walls and floors, 0 = no bounce.';
     this.root.appendChild(note);
   }
 
@@ -139,25 +144,37 @@ export class PropsPanel {
     h.prepend(name);
     this.root.appendChild(h);
 
-    const grid = document.createElement('div');
-    grid.className = 'fields';
-    for (const f of FIELDS[e.kind]) {
-      const raw = getPath(e, f.key);
-      const kind = f.kind ?? 'num';
-      const shown = kind === 'deg' ? (raw * 180) / Math.PI : raw;
-      grid.appendChild(this.input(f.label, kind, shown, (v) => {
-        let val: any = v;
-        if (kind === 'deg') val = (Number(v) * Math.PI) / 180;
-        else if (kind === 'num') val = f.min !== undefined ? Math.max(f.min, Number(v)) : Number(v);
-        else if (kind === 'auto') val = v === '' || v === null ? null : Math.max(1e-9, Number(v));
-        this.app.ensureEditMode();
-        this.app.commit((s) => {
-          const t = s.elements.find((x) => x.id === e.id);
-          if (t) setPath(t, f.key, val);
-        }, f.lock ? { lock: { id: e.id, keys: f.lock } } : {});
-      }, { unit: f.unit, step: f.step, key: f.key, placeholder: kind === 'auto' ? this.autoInertia(e) : undefined }));
+    if (e.kind === 'ground') this.renderGround(e);
+    const sections: [string, Field[]][] = [
+      ['Properties', FIELDS[e.kind].filter((f) => !f.init)],
+      ['Initial conditions (t = 0)', FIELDS[e.kind].filter((f) => f.init)],
+    ];
+    for (const [title, fields] of sections) {
+      if (!fields.length) continue;
+      const head = document.createElement('div');
+      head.className = 'props-section';
+      head.textContent = title;
+      this.root.appendChild(head);
+      const grid = document.createElement('div');
+      grid.className = 'fields';
+      for (const f of fields) {
+        const raw = getPath(e, f.key);
+        const kind = f.kind ?? 'num';
+        const shown = kind === 'deg' ? (raw * 180) / Math.PI : raw;
+        grid.appendChild(this.input(f.label, kind, shown, (v) => {
+          let val: any = v;
+          if (kind === 'deg') val = (Number(v) * Math.PI) / 180;
+          else if (kind === 'num') val = f.min !== undefined ? Math.max(f.min, Number(v)) : Number(v);
+          else if (kind === 'auto') val = v === '' || v === null ? null : Math.max(1e-9, Number(v));
+          this.app.ensureEditMode();
+          this.app.commit((s) => {
+            const t = s.elements.find((x) => x.id === e.id);
+            if (t) setPath(t, f.key, val);
+          }, f.lock ? { lock: { id: e.id, keys: f.lock } } : {});
+        }, { unit: f.unit, step: f.step, key: f.key, placeholder: kind === 'auto' ? this.autoInertia(e) : undefined }));
+      }
+      this.root.appendChild(grid);
     }
-    this.root.appendChild(grid);
 
     if ('a' in e) this.renderAttach(e, 'a', e.kind === 'slider' ? 'Body point' : 'End A');
     if ('b' in e) this.renderAttach(e, 'b', 'End B');
@@ -188,7 +205,16 @@ export class PropsPanel {
         this.app.commit((s) => { const t = s.elements.find((x) => x.id === e.id) as any; t.length = L; });
       }));
     }
-    actions.appendChild(this.button('Delete', () => this.app.deleteElements(new Set([e.id]))));
+    if (e.kind === 'ground') {
+      actions.appendChild(this.button('Flip solid side', () => this.app.commit((s) => {
+        const t = s.elements.find((x) => x.id === e.id) as GroundEl;
+        const g = groundEnds(t);
+        Object.assign(t, groundFromEnds(g.a, g.b, [-g.n[0], -g.n[1]], t.h));
+      })));
+    }
+    const del = this.button('Delete', () => this.app.deleteElements(new Set([e.id])));
+    del.classList.add('danger');
+    actions.appendChild(del);
     this.root.appendChild(actions);
 
     const info = this.info(e);
@@ -198,6 +224,44 @@ export class PropsPanel {
       n.innerHTML = info;
       this.root.appendChild(n);
     }
+  }
+
+  /** Ground pieces are edited by their surface end points. */
+  private renderGround(g: GroundEl): void {
+    const ends = groundEnds(g);
+    const head = document.createElement('div');
+    head.className = 'props-section';
+    head.textContent = 'Surface';
+    this.root.appendChild(head);
+    const grid = document.createElement('div');
+    grid.className = 'fields';
+    const set = (which: 0 | 1, axis: 0 | 1) => (v: number) => this.app.commit((s) => {
+      const t = s.elements.find((x) => x.id === g.id) as GroundEl;
+      const e = groundEnds(t);
+      const a: [number, number] = [...e.a], b: [number, number] = [...e.b];
+      (which ? b : a)[axis] = Number(v);
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.01) return;
+      Object.assign(t, groundFromEnds(a, b, e.n, t.h));
+    });
+    grid.append(
+      this.input('start x', 'num', ends.a[0], set(0, 0), { unit: 'm', step: 0.05, key: 'ga0' }),
+      this.input('start y', 'num', ends.a[1], set(0, 1), { unit: 'm', step: 0.05, key: 'ga1' }),
+      this.input('end x', 'num', ends.b[0], set(1, 0), { unit: 'm', step: 0.05, key: 'gb0' }),
+      this.input('end y', 'num', ends.b[1], set(1, 1), { unit: 'm', step: 0.05, key: 'gb1' }),
+      this.input('thickness', 'num', g.h, (v) => this.app.commit((s) => {
+        const t = s.elements.find((x) => x.id === g.id) as GroundEl;
+        const e = groundEnds(t);
+        Object.assign(t, groundFromEnds(e.a, e.b, e.n, Math.max(0.01, Number(v))));
+      }), { unit: 'm', step: 0.02, key: 'gh' }),
+      this.input('length', 'num', g.w, (v) => this.app.commit((s) => {
+        const t = s.elements.find((x) => x.id === g.id) as GroundEl;
+        const e = groundEnds(t);
+        const L = Math.max(0.05, Number(v));
+        const ux = (e.b[0] - e.a[0]) / t.w, uy = (e.b[1] - e.a[1]) / t.w;
+        Object.assign(t, groundFromEnds(e.a, [e.a[0] + ux * L, e.a[1] + uy * L], e.n, t.h));
+      }), { unit: 'm', step: 0.05, key: 'gw' }),
+    );
+    this.root.appendChild(grid);
   }
 
   private autoInertia(e: El): string | undefined {
@@ -214,7 +278,7 @@ export class PropsPanel {
       case 'tspring': return 'Torque −k_t(θ_A − θ_B − θ₀) on body A of the pin, opposite on body B.';
       case 'pin': return 'Revolute joint: the two attachment points coincide. Add a torsional spring with the palette tool.';
       case 'rope': return 'Inextensible, always taut (bilateral). Wrap direction per pulley: CCW = rope travels counter-clockwise around it.';
-      case 'ground': return 'Fixed. The hatched side is the inside; the solid edge is the surface.';
+      case 'ground': return 'Fixed and solid: bodies bounce off it. The hatched side is the inside. Drag the square handles on the canvas to move either end.';
       default: return '';
     }
   }

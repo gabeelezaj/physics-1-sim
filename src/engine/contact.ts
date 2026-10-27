@@ -4,7 +4,8 @@
 // spring-damper along the contact normal:
 //   f = max(0, k δ + c δ̇),   V = ½ k δ²
 // with k = m ω_c² (ω_c ≈ 300 rad/s, well inside RK4's stability at 1 ms) and c
-// set from the coefficient of restitution e via ζ = −ln e / √(π² + ln² e).
+// set from the coefficient of restitution e via ζ = −ln e / √(π² + ln² e),
+// faded in over the first millimetre of penetration.
 // Tested points: rect corners in the ground box, ground corners in a rect,
 // and circles (point masses, pulleys) against the box.
 
@@ -117,13 +118,28 @@ export class ContactF implements ForceEl {
     return out;
   }
 
-  private forceOf(h: Hit, qd: ArrayLike<number>): number {
+  /** Penetration rate of a contact point (positive = going deeper). */
+  private rate(h: Hit, qd: ArrayLike<number>): number {
     const b = this.body;
     const w = b.dof === 3 ? qd[b.idx + 2] : 0;
     const vx = qd[b.idx] - w * h.ry, vy = qd[b.idx + 1] + w * h.rx;
-    // penetration grows when the body point moves against the normal
-    const rate = -(vx * h.nx + vy * h.ny);
-    return Math.max(0, this.k * h.depth + this.c * rate);
+    return -(vx * h.nx + vy * h.ny);
+  }
+
+  private forceOf(h: Hit, qd: ArrayLike<number>): number {
+    // damping fades in over the first millimetre so the force is continuous at first touch
+    const ramp = Math.min(1, h.depth / 1e-3);
+    return Math.max(0, this.k * h.depth + ramp * this.c * this.rate(h, qd));
+  }
+
+  /** Power of everything except the conservative ½kδ² spring. */
+  power(q: ArrayLike<number>, qd: ArrayLike<number>): number {
+    let p = 0;
+    for (const h of this.hits(q)) {
+      const r = this.rate(h, qd);
+      p -= (this.forceOf(h, qd) - this.k * h.depth) * r;
+    }
+    return p;
   }
 
   apply(q: ArrayLike<number>, qd: ArrayLike<number>, F: Float64Array): void {
