@@ -132,6 +132,8 @@ function fitView(): void {
   app.redraw();
 }
 
+$('btn-fit').addEventListener('click', () => fitView());
+
 const resize = () => { app.renderer.resize(); app.redraw(); };
 new ResizeObserver(resize).observe(canvas);
 resize();
@@ -141,3 +143,4 @@ app.start();
 
 // handy for debugging from the console
 (window as any).app = app;
+(window as any).editor = editor;

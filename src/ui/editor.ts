@@ -411,6 +411,10 @@ export class Editor {
     if (!d) {
       const h = this.tool === 'select' ? this.hit(p) : null;
       if (h !== this.app.hover) this.app.hover = h;
+      if (this.tool === 'select') {
+        const e = h ? this.scene.elements.find((x) => x.id === h) : null;
+        this.canvas.style.cursor = e && ('x' in e || e.kind === 'pin') ? 'grab' : h ? 'pointer' : 'default';
+      }
       this.app.redraw();
       return;
     }
@@ -475,6 +479,44 @@ export class Editor {
       this.app.toggle();
     } else if (ev.key === 'r' || ev.key === 'R') {
       this.app.reset();
+    } else if (ev.key === '[' || ev.key === ']') {
+      this.rotateSelection(ev.key === ']' ? -15 : 15);
+    } else if (ev.key.startsWith('Arrow') && this.app.selection.size) {
+      ev.preventDefault();
+      const step = ev.shiftKey ? 0.01 : 0.05;
+      const d: V = ev.key === 'ArrowLeft' ? [-step, 0] : ev.key === 'ArrowRight' ? [step, 0] : ev.key === 'ArrowUp' ? [0, step] : [0, -step];
+      this.nudgeSelection(d);
     }
+  }
+
+  /** Rotate selected bodies about their centres by `deg` degrees. */
+  private rotateSelection(deg: number): void {
+    const ids = [...this.app.selection].filter((id) => {
+      const e = this.scene.elements.find((x) => x.id === id);
+      return e && (e.kind === 'rect' || e.kind === 'ground' || e.kind === 'pulley');
+    });
+    if (!ids.length) return;
+    this.app.ensureEditMode();
+    this.app.commit((s) => {
+      for (const id of ids) {
+        const e = s.elements.find((x) => x.id === id);
+        if (e && 'theta' in e) e.theta += (deg * Math.PI) / 180;
+      }
+    }, { lock: ids.map((id) => ({ id, keys: ['x', 'y', 'theta'] as ('x' | 'y' | 'theta')[] })) });
+  }
+
+  private nudgeSelection(d: V): void {
+    const ids = [...this.app.selection].filter((id) => {
+      const e = this.scene.elements.find((x) => x.id === id);
+      return e && 'x' in e;
+    });
+    if (!ids.length) return;
+    this.app.ensureEditMode();
+    this.app.commit((s) => {
+      for (const id of ids) {
+        const e = s.elements.find((x) => x.id === id);
+        if (e && 'x' in e) { e.x += d[0]; e.y += d[1]; }
+      }
+    }, { lock: ids.map((id) => ({ id, keys: ['x', 'y'] as ('x' | 'y' | 'theta')[] })) });
   }
 }

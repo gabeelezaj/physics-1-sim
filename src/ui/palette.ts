@@ -70,7 +70,7 @@ export function buildPalette(root: HTMLElement, onPick: (t: Tool) => void): (t: 
   }
   const help = document.createElement('div');
   help.className = 'palette-help';
-  help.innerHTML = 'Drag an item onto the canvas or click it, then click in the scene.<br><br><b>Del</b> delete · <b>Esc</b> cancel<br><b>Space</b> play/pause · <b>R</b> reset';
+  help.innerHTML = 'Drag an item onto the canvas or click it, then click in the scene.<br><br><b>Del</b> delete · <b>Esc</b> cancel<br><b>Space</b> play/pause · <b>R</b> reset<br><b>[ ]</b> rotate · <b>arrows</b> nudge<br><b>Alt-drag</b> or drag empty space to pan';
   root.appendChild(help);
   return (active: Tool) => {
     for (const [t, b] of buttons) b.classList.toggle('active', t === active);
