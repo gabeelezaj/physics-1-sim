@@ -2,6 +2,7 @@ import 'katex/dist/katex.min.css';
 import './style.css';
 import { emptyScene } from './model/types';
 import { PRESETS } from './presets';
+import { AnalysisPanel } from './ui/analysisPanel';
 import { App } from './ui/app';
 import { Editor } from './ui/editor';
 import { PropsPanel } from './ui/props';
@@ -12,6 +13,7 @@ const canvas = $<HTMLCanvasElement>('canvas');
 const app = new App(canvas);
 const editor = new Editor(app, canvas);
 new PropsPanel(app, $('props'), editor);
+new AnalysisPanel(app);
 
 // ------------------------------------------------------------------ toolbar
 const playBtn = $<HTMLButtonElement>('btn-play');

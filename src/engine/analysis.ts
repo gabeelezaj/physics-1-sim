@@ -200,15 +200,16 @@ export interface Linearization {
   modesQ: Mat;
 }
 
-export function linearize(sys: System, q: Float64Array, lambda: Float64Array): Linearization {
+/**
+ * Choose which maximal coordinates are independent: greedily mark the least
+ * "natural" coordinates as dependent (Gram–Schmidt on the columns of J)
+ * until they span the constraint Jacobian's column space.
+ */
+export function chooseIndependent(sys: System, q: ArrayLike<number>): { indep: number[]; dep: number[]; J: Float64Array } {
   const { n, m } = sys;
   const zero = new Float64Array(n);
-  const { J } = sys.evalConstraints(q, zero, false);
-  const Jc = Float64Array.from(J);
+  const Jc = Float64Array.from(sys.evalConstraints(q, zero, false).J);
   const col = (k: number) => Array.from({ length: m }, (_, i) => Jc[i * n + k]);
-
-  // Greedy choice of dependent coordinates (lowest score first) by
-  // Gram–Schmidt on the columns of J.
   const scores = coordScores(sys);
   const order = [...Array(n).keys()].sort((a, b) => scores[a] - scores[b] || a - b);
   const basis: number[][] = [];
@@ -230,6 +231,12 @@ export function linearize(sys: System, q: Float64Array, lambda: Float64Array): L
   }
   const depSet = new Set(dep);
   const indep = [...Array(n).keys()].filter((k) => !depSet.has(k));
+  return { indep, dep, J: Jc };
+}
+
+export function linearize(sys: System, q: Float64Array, lambda: Float64Array): Linearization {
+  const { n, m } = sys;
+  const { indep, dep, J: Jc } = chooseIndependent(sys, q);
   const k = indep.length, r = dep.length;
 
   // δq_D = X δq_I with (J_Dᵀ J_D) X = −J_Dᵀ J_I

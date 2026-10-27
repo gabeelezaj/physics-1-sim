@@ -166,6 +166,7 @@ main { display: flex; height: calc(100% - 48px); }
 
 table.data { border-collapse: collapse; width: 100%; font-size: 12px; margin: 6px 0 10px; }
 table.data th, table.data td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: right; font-family: var(--mono); }
+table.data td.l { text-align: left; font-family: inherit; }
 table.data th { font-family: inherit; color: var(--muted); font-weight: 500; }
 table.data td:first-child, table.data th:first-child { text-align: left; }
 .section-title { font-weight: 600; margin: 12px 0 4px; }
