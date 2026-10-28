@@ -9,6 +9,8 @@ npm test         # verification suite (Vitest)
 npm run build    # typecheck + production bundle
 ```
 
+On a Mac you can also double-click **Start Sandbox.command** in Finder: it installs dependencies on first run, starts the server and opens the app in your browser. Close its Terminal window to stop it.
+
 ## Using it
 
 - **Palette (left):** drag an item onto the canvas, or click it and then click in the scene.
