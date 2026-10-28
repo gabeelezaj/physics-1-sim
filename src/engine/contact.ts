@@ -151,6 +151,50 @@ function prepare(side: ContactSide): Prepared {
 
 const MAX_GAIN = 4;
 
+/** Shared empty result (never mutated). */
+const NO_HITS: Hit[] = [];
+
+/**
+ * Remembers the contacts found for the last body coordinates: within one
+ * integrator stage the same q is asked for by apply(), power() and energy(),
+ * and the contact search is most of the cost of a step.
+ */
+class HitCache {
+  private key: number[] = [];
+  private val: Hit[] | null = null;
+  constructor(private bodies: (SBody | null)[]) {}
+  /** The stored contacts if the bodies have not moved since `store`, else null (and remember this q). */
+  lookup(q: ArrayLike<number>): Hit[] | null {
+    let k = 0, same = this.val !== null;
+    for (const b of this.bodies) {
+      if (!b) continue;
+      for (let i = 0; i < b.dof; i++, k++) {
+        const v = q[b.idx + i];
+        if (this.key[k] !== v) { same = false; this.key[k] = v; }
+      }
+    }
+    return same ? this.val : null;
+  }
+
+  store(h: Hit[]): Hit[] {
+    this.val = h;
+    return h;
+  }
+}
+
+/** World axis-aligned bounds of a polygon at a pose. */
+function bounds(P: Prepared, p: PoseS): [number, number, number, number] {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [lx, ly] of (P.shape as { verts: V2[] }).verts) {
+    const x = p.x + p.c * lx - p.s * ly, y = p.y + p.s * lx + p.c * ly;
+    if (x < x0) x0 = x;
+    if (x > x1) x1 = x;
+    if (y < y0) y0 = y;
+    if (y > y1) y1 = y;
+  }
+  return [x0, y0, x1, y1];
+}
+
 /**
  * For a world point inside polygon Y (pose py), the smallest push of the
  * point's own body that frees it. Candidate escape directions are Y's
@@ -238,12 +282,15 @@ export class ContactF implements ForceEl {
    * like ground friction with the pair's effective mass `meff` and the
    * in-contact step `hStep`.
    */
-  constructor(a: ContactSide, b: ContactSide, private k: number, private c: number, private mu = 0, private meff = 1, private hStep = 2.5e-4) {
+  constructor(a: ContactSide, b: ContactSide, private k: number, private c: number, private mu = 0, private meff = 1, public hStep = 2.5e-4) {
     this.A = prepare(a);
     this.B = prepare(b);
     this.el = `${a.b?.id}:${b.b?.id ?? b.name}:contact`;
     this.reach = this.A.radius + this.B.radius;
+    this.cache = new HitCache([a.b, b.b]);
   }
+
+  private cache: HitCache;
 
   private pose(P: Prepared, q: ArrayLike<number>): PoseS {
     if (!P.b) {
@@ -255,7 +302,15 @@ export class ContactF implements ForceEl {
   }
 
   hits(q: ArrayLike<number>): Hit[] {
+    return this.cache.lookup(q) ?? this.cache.store(this.findHits(q));
+  }
+
+  private findHits(q: ArrayLike<number>): Hit[] {
     const { A, B } = this;
+    // broad phase on the centres first (fixed pieces can be long: their radius covers the whole outline)
+    const ax = A.b ? q[A.b.idx] : A.fixed!.x, ay = A.b ? q[A.b.idx + 1] : A.fixed!.y;
+    const bx = B.b ? q[B.b.idx] : B.fixed!.x, by = B.b ? q[B.b.idx + 1] : B.fixed!.y;
+    if ((ax - bx) * (ax - bx) + (ay - by) * (ay - by) >= this.reach * this.reach) return NO_HITS;
     const pa = this.pose(A, q), pb = this.pose(B, q);
     const out: Hit[] = [];
     const ca = A.shape.kind === 'circle', cb = B.shape.kind === 'circle';
@@ -269,8 +324,6 @@ export class ContactF implements ForceEl {
       }
       return out;
     }
-    // broad phase (fixed pieces can be long: their radius covers the whole outline)
-    if (Math.hypot(pa.x - pb.x, pa.y - pb.y) >= this.reach) return out;
     if (ca) {
       const h = circlePoly(B, pb, pa.x, pa.y, A.radius);
       if (h) out.push(h);
@@ -281,6 +334,8 @@ export class ContactF implements ForceEl {
       if (h) out.push({ ...h, nx: -h.nx, ny: -h.ny });
       return out;
     }
+    const ba = bounds(A, pa), bb = bounds(B, pb);
+    if (ba[0] > bb[2] || bb[0] > ba[2] || ba[1] > bb[3] || bb[1] > ba[3]) return out;
     const ownNormals = (P: Prepared, pose: PoseS, k: number): V2[] =>
       P.sampleEdges[k].map((e): V2 => {
         const [x, y] = P.normals[e];
@@ -384,6 +439,20 @@ export class ContactF implements ForceEl {
     }
   }
 
+  /** Fastest normal speed (or sliding speed, with friction) among the contacts at q. */
+  maxRate(q: ArrayLike<number>, qd: ArrayLike<number>): number {
+    let m = 0;
+    for (const h of this.hits(q)) {
+      m = Math.max(m, Math.abs(this.rate(h, q, qd)));
+      if (this.mu) {
+        const [vx, vy] = this.relVel(h, q, qd);
+        const vn = vx * h.nx + vy * h.ny;
+        m = Math.max(m, Math.hypot(vx - vn * h.nx, vy - vn * h.ny));
+      }
+    }
+    return m;
+  }
+
   /** Deepest penetration at q (for the initial-overlap check). */
   maxDepth(q: ArrayLike<number>): number {
     return this.hits(q).reduce((m, h) => Math.max(m, h.depth), 0);
@@ -398,13 +467,24 @@ interface Part {
   pose: PoseS;
   /** Outward normals in world coordinates. */
   wn: V2[];
+  /** World bounds [x0, y0, x1, y1]. */
+  box: [number, number, number, number];
+}
+
+/** An exposed outline sample of a ground piece, in world coordinates. */
+interface GSample {
+  x: number;
+  y: number;
+  wt: number;
+  own: V2[];
+  mu: number;
 }
 
 function partOf(side: ContactSide): Part {
   const P = prepare(side);
   const f = side.fixed!;
   const pose = { x: f.x, y: f.y, c: Math.cos(f.theta), s: Math.sin(f.theta) };
-  return { P, pose, wn: P.normals.map(([x, y]): V2 => [pose.c * x - pose.s * y, pose.s * x + pose.c * y]) };
+  return { P, pose, wn: P.normals.map(([x, y]): V2 => [pose.c * x - pose.s * y, pose.s * x + pose.c * y]), box: bounds(P, pose) };
 }
 
 /** Signed distances of a world point to a part's edge lines (all < 0 = inside), or null if outside. */
@@ -430,6 +510,8 @@ interface Seg {
   nx: number;
   ny: number;
   mu: number;
+  /** Bounds [x0, y0, x1, y1]. */
+  box: [number, number, number, number];
 }
 
 /**
@@ -447,8 +529,10 @@ export class GroundContactF implements ForceEl {
   private A: Prepared;
   private parts: Part[];
   private segs: Seg[] = [];
-  /** Ground outline samples that are on the union's boundary (not covered by another piece). */
-  private exposed: boolean[][];
+  /** The stretches of `segs` near the body in the current search. */
+  private local: Seg[] = [];
+  /** Per piece, its outline samples that are on the union's boundary (not covered by another piece). */
+  private gsamples: GSample[][];
 
   private mus: number[];
 
@@ -456,7 +540,7 @@ export class GroundContactF implements ForceEl {
    * `hStep` is the integration step while in contact; it sets how sharply
    * friction may switch direction and still integrate stably.
    */
-  constructor(a: ContactSide, grounds: ContactSide[], private k: number, private c: number, private hStep = 2.5e-4) {
+  constructor(a: ContactSide, grounds: ContactSide[], private k: number, private c: number, public hStep = 2.5e-4) {
     this.A = prepare(a);
     this.parts = grounds.map(partOf);
     this.mus = grounds.map((g) => g.mu ?? 0);
@@ -486,15 +570,22 @@ export class GroundContactF implements ForceEl {
           if (covered(mx, my, part)) continue;
           this.segs.push({
             ax: a[0] + (b[0] - a[0]) * t0, ay: a[1] + (b[1] - a[1]) * t0,
-            bx: a[0] + (b[0] - a[0]) * t1, by: a[1] + (b[1] - a[1]) * t1, nx: n[0], ny: n[1], mu: this.mus[pi],
+            bx: a[0] + (b[0] - a[0]) * t1, by: a[1] + (b[1] - a[1]) * t1, nx: n[0], ny: n[1], mu: this.mus[pi], box: [0, 0, 0, 0],
           });
+          const g = this.segs[this.segs.length - 1];
+          g.box = [Math.min(g.ax, g.bx), Math.min(g.ay, g.by), Math.max(g.ax, g.bx), Math.max(g.ay, g.by)];
         }
       });
     });
-    this.exposed = this.parts.map((part) => part.P.samples.map(([lx, ly]) => {
-      const x = part.pose.x + part.pose.c * lx - part.pose.s * ly, y = part.pose.y + part.pose.s * lx + part.pose.c * ly;
-      return !covered(x, y, part);
-    }));
+    this.cache = new HitCache([a.b]);
+    this.gsamples = this.parts.map((part, pi) => {
+      const out: GSample[] = [];
+      part.P.samples.forEach(([lx, ly, wt], k) => {
+        const x = part.pose.x + part.pose.c * lx - part.pose.s * ly, y = part.pose.y + part.pose.s * lx + part.pose.c * ly;
+        if (!covered(x, y, part)) out.push({ x, y, wt, own: part.P.sampleEdges[k].map((e) => part.wn[e]), mu: this.mus[pi] });
+      });
+      return out;
+    });
   }
 
   private bodyPose(q: ArrayLike<number>): PoseS {
@@ -503,16 +594,35 @@ export class GroundContactF implements ForceEl {
     return { x: q[b.idx], y: q[b.idx + 1], c: Math.cos(th), s: Math.sin(th) };
   }
 
+  private cache: HitCache;
+
   hits(q: ArrayLike<number>): Hit[] {
+    return this.cache.lookup(q) ?? this.cache.store(this.findHits(q));
+  }
+
+  private findHits(q: ArrayLike<number>): Hit[] {
     const A = this.A;
     const pa = this.bodyPose(q);
     const out: Hit[] = [];
-    const near = this.parts.filter((p) => Math.hypot(pa.x - p.pose.x, pa.y - p.pose.y) < A.radius + p.P.radius);
+    // body bounds; only pieces whose bounds overlap them can touch it
+    const r0 = A.radius;
+    const bb = A.shape.kind === 'circle' ? [pa.x - r0, pa.y - r0, pa.x + r0, pa.y + r0] : bounds(A, pa);
+    const near: number[] = [];
+    this.parts.forEach((p, i) => {
+      if (!(p.box[0] > bb[2] || bb[0] > p.box[2] || p.box[1] > bb[3] || bb[1] > p.box[3])) near.push(i);
+    });
     if (!near.length) return out;
+    // boundary stretches close enough to be the nearest one to a body point
+    // that is inside the ground (no deeper than the body is wide)
+    const m = A.shape.kind === 'circle' ? 0 : 2 * r0;
+    this.local.length = 0;
+    for (const g of this.segs) {
+      if (!(g.box[0] > bb[2] + m || bb[0] - m > g.box[2] || g.box[1] > bb[3] + m || bb[1] - m > g.box[3])) this.local.push(g);
+    }
     if (A.shape.kind === 'circle') {
       // one contact against the union's boundary: smooth rolling over joints and curves
       const r = A.radius;
-      const inside = near.some((part) => insidePart(part, pa.x, pa.y));
+      const inside = near.some((i) => insidePart(this.parts[i], pa.x, pa.y));
       const c = this.closest(pa.x, pa.y);
       if (!c) return out;
       if (!inside && c.d >= r) return out;
@@ -524,7 +634,7 @@ export class GroundContactF implements ForceEl {
     // body outline points inside the ground: push towards the nearest exposed boundary point
     for (const [lx, ly, wt] of A.samples) {
       const px = pa.x + pa.c * lx - pa.s * ly, py = pa.y + pa.s * lx + pa.c * ly;
-      if (!near.some((part) => insidePart(part, px, py))) continue;
+      if (!near.some((i) => insidePart(this.parts[i], px, py))) continue;
       const c = this.closest(px, py);
       if (!c || c.d <= 0) continue;
       // direction to the closest boundary point (the face normal if it is mid-face)
@@ -532,15 +642,12 @@ export class GroundContactF implements ForceEl {
       out.push({ px, py, nx, ny, depth: c.d, wt, s: 1, mu: c.mu });
     }
     // ground corners and edges poking into the body
-    for (const part of near) {
-      const exposed = this.exposed[this.parts.indexOf(part)];
-      part.P.samples.forEach(([lx, ly, wt], k) => {
-        if (!exposed[k]) return;
-        const px = part.pose.x + part.pose.c * lx - part.pose.s * ly, py = part.pose.y + part.pose.s * lx + part.pose.c * ly;
-        const own = part.P.sampleEdges[k].map((e) => part.wn[e]);
-        const f = freePoint(A, pa, px, py, own);
-        if (f) out.push({ px, py, nx: -f.nx, ny: -f.ny, depth: f.depth, wt, s: f.s, mu: this.mus[this.parts.indexOf(part)] });
-      });
+    for (const i of near) {
+      for (const g of this.gsamples[i]) {
+        if (g.x < bb[0] || g.x > bb[2] || g.y < bb[1] || g.y > bb[3]) continue;
+        const f = freePoint(A, pa, g.x, g.y, g.own);
+        if (f) out.push({ px: g.x, py: g.y, nx: -f.nx, ny: -f.ny, depth: f.depth, wt: g.wt, s: f.s, mu: g.mu });
+      }
     }
     return out;
   }
@@ -548,7 +655,7 @@ export class GroundContactF implements ForceEl {
   /** Nearest point on the union's exposed boundary. */
   private closest(px: number, py: number): { x: number; y: number; d: number; nx: number; ny: number; mu: number } | null {
     let best: { x: number; y: number; d: number; nx: number; ny: number; mu: number } | null = null;
-    for (const g of this.segs) {
+    for (const g of this.local) {
       const ex = g.bx - g.ax, ey = g.by - g.ay;
       const t = Math.max(0, Math.min(1, ((px - g.ax) * ex + (py - g.ay) * ey) / (ex * ex + ey * ey || 1)));
       const x = g.ax + t * ex, y = g.ay + t * ey;
@@ -634,6 +741,22 @@ export class GroundContactF implements ForceEl {
       const [ffx, ffy] = this.friction(h, f * h.s, q, qd);
       if (ffx || ffy) out.push({ body: b, x: h.px, y: h.py, fx: ffx, fy: ffy, label: 'friction', kind: 'friction' });
     }
+  }
+
+  maxRate(q: ArrayLike<number>, qd: ArrayLike<number>): number {
+    let m = 0;
+    for (const h of this.hits(q)) {
+      m = Math.max(m, Math.abs(this.rate(h, q, qd)));
+      if (h.mu) m = Math.max(m, this.slip(h, q, qd));
+    }
+    return m;
+  }
+
+  /** Tangential speed of the body's material point at a contact. */
+  private slip(h: Hit, q: ArrayLike<number>, qd: ArrayLike<number>): number {
+    const [vx, vy] = this.pointVel(h, q, qd);
+    const vn = vx * h.nx + vy * h.ny;
+    return Math.hypot(vx - vn * h.nx, vy - vn * h.ny);
   }
 
   maxDepth(q: ArrayLike<number>): number {

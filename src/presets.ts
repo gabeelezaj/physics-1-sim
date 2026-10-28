@@ -1,8 +1,9 @@
-// The three preset "nightmare" problems.
+// Preset scenes: the original "nightmare" problems plus showcase machines.
 
 import { RopeC } from './engine/constraints';
 import { System } from './engine/system';
 import { at, force, ground, pin, point, pulley, rect, rod, rope, slider, spring, tspring } from './model/factory';
+import { groundFromEnds } from './model/ground';
 import { rampFromSlope } from './model/shapes';
 import { emptyScene, type Attach, type GroundEl, type RectEl, type Scene } from './model/types';
 
@@ -208,6 +209,148 @@ export function skatePark(): Scene {
   return s;
 }
 
+/**
+ * (7) Newton's cradle: five steel balls on rods, with perfectly elastic
+ * contact. The first ball is pulled out 40° and let go.
+ */
+export function newtonsCradle(): Scene {
+  const s = emptyScene();
+  s.title = "Newton's cradle";
+  s.settings.restitution = 1;
+  const top = 1.6, L = 1.1, r = 0.1, n = 5;
+  const beam = ground('G1', 0, top + 0.06, { theta: Math.PI, w: 1.6, h: 0.12 });
+  s.elements.push(beam);
+  for (let i = 0; i < n; i++) {
+    // a hair of clearance so each impact passes cleanly down the line
+    const px = (i - (n - 1) / 2) * (2 * r + 0.002);
+    const th = i === 0 ? deg(40) : 0;
+    const ball = point(`m${i + 1}`, px - L * Math.sin(th), top - L * Math.cos(th), 1, { radius: r });
+    s.elements.push(ball, rod(`R${i + 1}`, onGround(beam, px, top), at(ball.id, 0, 0), L));
+  }
+  return s;
+}
+
+/**
+ * (8) Domino amplification: each domino is 1.25× the size of the one before,
+ * so a nudge to a 12 cm domino ends up toppling one well over a metre tall.
+ */
+export function dominoes(): Scene {
+  const s = emptyScene();
+  s.title = 'Domino amplification';
+  s.elements.push(ground('G1', 1.6, -0.06, { w: 5.6, h: 0.12, mu: 0.6 }));
+  let x = -0.9, h = 0.12;
+  for (let i = 0; i < 11; i++) {
+    const w = h / 6.5;
+    const d = rect(`D${i + 1}`, x, h / 2, 2.4 * w * h * 1.1, w, h);
+    if (i === 0) {
+      // the first one starts tipped 10° onto its right-hand corner
+      const th = deg(-10), cx = x + w / 2;
+      d.theta = th;
+      d.x = cx - (Math.cos(th) * w / 2 + Math.sin(th) * h / 2);
+      d.y = -(Math.sin(th) * w / 2 - Math.cos(th) * h / 2);
+    }
+    s.elements.push(d);
+    x += 0.55 * h;
+    h *= 1.25;
+  }
+  return s;
+}
+
+/**
+ * (9) Double pendulum released from horizontal: chaotic motion (turn on
+ * motion trails in the View menu to see the path of the lower bob).
+ */
+export function doublePendulum(): Scene {
+  const s = emptyScene();
+  s.title = 'Chaotic double pendulum';
+  const ceil = ground('G1', 0, 1.26, { theta: Math.PI, w: 0.6, h: 0.12 });
+  const a = barFrom('B1', [0, 1.2], deg(0), -0.4, 1, 0.8, 0.05);
+  const b = barFrom('B2', [0.8, 1.2], deg(30), -0.35, 0.7, 0.7, 0.05);
+  s.elements.push(ceil, a, b, pin('O1', at(a.id, -0.4, 0), onGround(ceil, 0, 1.2)), pin('O2', at(a.id, 0.4, 0), at(b.id, -0.35, 0)));
+  return s;
+}
+
+/** Fixed plank whose surface runs from a to b, with free space on the `side`. */
+function plank(name: string, a: [number, number], b: [number, number], side: [number, number], mu = 0, t = 0.06): GroundEl {
+  return ground(name, 0, 0, { ...groundFromEnds(a, b, side, t), mu });
+}
+
+/**
+ * (10) Rube Goldberg machine, left to right and top to bottom:
+ *  1. a ball rolls down a rough ramp and along a shelf,
+ *  2. into a row of dominoes,
+ *  3. the last domino knocks a marble off the end of the shelf,
+ *  4. the marble zig-zags down three planks, bouncing off two walls,
+ *  5. and rolls along a ledge into a heavy weight, pushing it off the edge;
+ *  6. the falling weight pulls a rope over a pulley and drags a cart along a table,
+ *  7. the cart slams into a stop and the ball it carries flies on (inertia),
+ *  8. into a hanging basket, which now outweighs its counterweight,
+ *  9. the basket sinks, the counterweight rises over a big pulley
+ * 10. and rings the bell.
+ */
+export function rubeGoldberg(): Scene {
+  const s = emptyScene();
+  s.title = 'Rube Goldberg machine';
+  s.settings.restitution = 0.3;
+  const up: [number, number] = [0, 1], left: [number, number] = [-1, 0], right: [number, number] = [1, 0];
+  const els = s.elements;
+
+  els.push(ground('G0', -1.4, -0.06, { w: 9.6, h: 0.12, mu: 0.5 }));
+
+  // 1–3: ramp, shelf, dominoes, marble
+  const r1 = rampFromSlope([-4.6, 3.0], [-6.0, 3.45])!;
+  els.push(ground('R1', r1.x, r1.y, { shape: 'wedge', w: r1.w, h: r1.h, flip: r1.flip, mu: 0.6 }));
+  els.push(plank('S1', [-4.6, 3.0], [-2.0, 3.0], up, 0.6, 0.1));
+  const dx = 1.4, dy = -0.45, L = Math.hypot(dx, dy), rA = 0.09;
+  const along = 0.15;
+  els.push(pulley('A', -6.0 + (along * dx) / L + (rA * -dy) / L, 3.45 + (along * dy) / L + (rA * dx) / L, 0.4, rA, { fixedAxle: false }));
+  for (let i = 0; i < 6; i++) els.push(rect(`D${i + 1}`, -3.5 + 0.2 * i, 3.15, 0.12, 0.04, 0.3));
+  els.push(pulley('M', -2.2, 3.07, 0.25, 0.07, { fixedAxle: false }));
+
+  // 4: marble run
+  els.push(plank('Z1', [-2.35, 2.55], [-0.6, 2.2], up, 0.4));
+  els.push(plank('W1', [-0.42, 1.75], [-0.42, 2.75], left));
+  els.push(plank('Z2', [-0.42, 1.95], [-2.1, 1.6], up, 0.4));
+  els.push(plank('W2', [-2.3, 1.2], [-2.3, 2.15], right));
+  els.push(plank('Z3', [-2.3, 1.4], [0.0, 1.0], up, 0.4));
+
+  // 5–7: ledge with the weight, table with the cart and its cargo, rope over a pulley
+  els.push(plank('S2', [0.0, 1.0], [1.6, 1.0], up, 0, 0.1));
+  els.push(plank('T1', [-0.2, 1.9], [1.25, 1.9], up, 0, 0.1));
+  els.push(ground('Stop', 1.28, 1.99, { w: 0.06, h: 0.24 }));
+  const W = rect('W', 1.5, 1.075, 1.0, 0.15, 0.15);
+  const K = rect('K', 0.3, 2.05, 0.5, 0.4, 0.3);
+  const C = point('C', 0.35, 2.26, 0.3, { radius: 0.06, mu: 0.9 });
+  const P1 = pulley('P1', 1.42, 1.9, 0.2, 0.08);
+  els.push(W, K, C, P1);
+  els.push(rope('T1r', at(W.id, 0, 0.075), at(K.id, 0.2, -0.07), [{ pulley: P1.id, dir: 1 }], 1));
+  els.push(slider('Tk', at(K.id, 0, -0.15), [0.3, 1.9], 0, { lockRotation: true, extent: 0.7 }));
+
+  // 8–10: hanging basket and counterweight over a big pulley, and the bell
+  els.push(ground('Wall', 1.8, 0.45, { w: 0.06, h: 0.9 })); // keeps the swinging weight away from the basket
+  const bx = 2.22;
+  const P2 = pulley('P2', bx + 0.25, 3.0, 0.5, 0.25);
+  const hook = point('h', bx, 2.1, 0.05, { radius: 0.03, collide: false });
+  const E = rect('E', bx, 1.4, 0.3, 0.6, 0.05);
+  els.push(P2, hook, E);
+  // basket walls welded to the floor of the basket (two pins each)
+  for (const sx of [-1, 1]) {
+    const w = rect(sx < 0 ? 'E1' : 'E2', bx + sx * 0.28, 1.505, 0.05, 0.04, 0.16);
+    els.push(w, pin(`${w.name}a`, at(w.id, 0, -0.08), at(E.id, sx * 0.28, 0.025)), pin(`${w.name}b`, at(w.id, 0, 0.08), at(E.id, sx * 0.28, 0.185)));
+  }
+  const Q = rect('Q', bx + 0.5, 0.1, 0.5, 0.2, 0.2);
+  const bellX = bx + 0.58;
+  const bell = point('Bell', bellX, 1.4, 0.3, { radius: 0.08 });
+  const bellTop = ground('G9', bellX, 2.26, { theta: Math.PI, w: 0.3, h: 0.12 });
+  els.push(Q, bellTop, bell);
+  const sling = Math.hypot(0.3, 0.675);
+  els.push(rod('R1h', at(hook.id, 0, 0), at(E.id, -0.3, 0.025), sling), rod('R2h', at(hook.id, 0, 0), at(E.id, 0.3, 0.025), sling));
+  els.push(rope('T2r', at(hook.id, 0, 0), at(Q.id, 0, 0.1), [{ pulley: P2.id, dir: -1 }], 1));
+  els.push(rod('Rb', onGround(bellTop, bellX, 2.2), at(bell.id, 0, 0), 0.8));
+  tautenRopes(s);
+  return s;
+}
+
 export const PRESETS: Preset[] = [
   { id: 'cart-bars', title: '1 · Cart with two tilted bars', build: cartWithTwoBars, modal: true },
   { id: 'pendulum-pulleys', title: '2 · Pendulum + masses over pulleys', build: pendulumAndPulleys, modal: true },
@@ -215,4 +358,8 @@ export const PRESETS: Preset[] = [
   { id: 'colliding-carts', title: '4 · Colliding carts', build: collidingCarts },
   { id: 'sliding-wedge', title: '5 · Block on a sliding wedge', build: blockOnSlidingWedge },
   { id: 'skate-park', title: '6 · Skate park (curves, friction, rolling)', build: skatePark },
+  { id: 'cradle', title: "7 · Newton's cradle", build: newtonsCradle },
+  { id: 'dominoes', title: '8 · Domino amplification', build: dominoes },
+  { id: 'double-pendulum', title: '9 · Chaotic double pendulum', build: doublePendulum },
+  { id: 'rube-goldberg', title: '10 · Rube Goldberg machine', build: rubeGoldberg },
 ];

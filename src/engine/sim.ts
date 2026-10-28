@@ -3,6 +3,9 @@
 import type { Scene } from '../model/types';
 import { System } from './system';
 
+/** Normal speed (m/s) at a contact above which steps are subdivided. */
+const IMPACT_SPEED = 0.02;
+
 export class Simulation {
   sys: System;
   q: Float64Array;
@@ -63,16 +66,20 @@ export class Simulation {
   }
 
   /**
-   * Advance one step. While anything is in contact the step is split into
+   * Advance one step. While an impact is under way the step is split into
    * four RK4 substeps: penalty contacts are stiff and switch on and off, and
    * the finer steps keep impacts (and their energy bookkeeping) accurate.
+   * Bodies just resting or sliding on each other (contact points moving
+   * slower than IMPACT_SPEED along the normal) take full steps, which the
+   * contact stiffness is tuned to stay stable at.
    */
   step(h = this.dt): void {
-    // in contact now, or about to be by the end of the step (look ahead along q̇)
+    // a contact now that is still closing or opening fast, or one about to start (look ahead along q̇)
     const ahead = this.tmpQ;
     for (let i = 0; i < this.q.length; i++) ahead[i] = this.q[i] + 1.5 * h * this.qd[i];
-    if (this.sys.inContact(this.q) || this.sys.inContact(ahead)) for (let i = 0; i < 4; i++) this.rk4(h / 4);
-    else this.rk4(h);
+    const sub = this.sys.contactActivity(this.q, this.qd, ahead) > IMPACT_SPEED ? 4 : 1;
+    this.sys.setContactStep(h / sub);
+    for (let i = 0; i < sub; i++) this.rk4(h / sub);
     // ropes leaving/catching pulleys; a catch is a plastic impulse, so book its loss
     const { sys, q, qd } = this;
     const keBefore = sys.kinetic(qd);

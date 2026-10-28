@@ -50,6 +50,9 @@ export class System {
   private A!: Float64Array;
   private rhs!: Float64Array;
   private perm!: Int32Array;
+  /** Nonzero columns of each constraint row (CSR layout, rebuilt every evaluation). */
+  private nzStart!: Int32Array;
+  private nzCol!: Int32Array;
 
   constructor(public scene: Scene) {
     this.g = scene.gravity.on ? scene.gravity.g : 0;
@@ -117,6 +120,8 @@ export class System {
     this.A = new Float64Array(r * r);
     this.rhs = new Float64Array(r);
     this.perm = new Int32Array(r);
+    this.nzStart = new Int32Array(r + 1);
+    this.nzCol = new Int32Array(r * this.n);
   }
 
   /**
@@ -322,22 +327,31 @@ export class System {
     const { J, c, gam } = this.evalConstraints(q, qd, true);
     const { A, rhs } = this;
     const a2 = stab ? 2 * this.alpha : 0, b2 = stab ? this.beta * this.beta : 0;
+    // J is sparse (each row touches one or two bodies): list each row's nonzero columns once
+    const { nzStart, nzCol } = this;
+    let nnz = 0;
     for (let i = 0; i < m; i++) {
+      nzStart[i] = nnz;
       const oi = i * n;
       let jqd = 0, jwf = 0;
       for (let k = 0; k < n; k++) {
         const v = J[oi + k];
         if (v === 0) continue;
+        nzCol[nnz++] = k;
         jqd += v * qd[k];
         jwf += v * invMass[k] * F[k];
       }
       rhs[i] = gam[i] - a2 * jqd - b2 * c[i] - jwf;
+    }
+    nzStart[m] = nnz;
+    for (let i = 0; i < m; i++) {
+      const oi = i * n;
       for (let j = 0; j <= i; j++) {
         const oj = j * n;
         let s = 0;
-        for (let k = 0; k < n; k++) {
-          const v = J[oi + k];
-          if (v !== 0) s += v * invMass[k] * J[oj + k];
+        for (let t = nzStart[i]; t < nzStart[i + 1]; t++) {
+          const k = nzCol[t];
+          s += J[oi + k] * invMass[k] * J[oj + k];
         }
         A[i * m + j] = s;
         A[j * m + i] = s;
@@ -361,6 +375,26 @@ export class System {
       if ((f instanceof ContactF || f instanceof GroundContactF) && f.hits(q).length) return true;
     }
     return false;
+  }
+
+  /**
+   * How hard contacts are working: 0 with no contact, otherwise the fastest
+   * normal speed (or sliding speed, where there is friction) at any contact point (Infinity if a contact appears in
+   * `ahead` that is not there now, i.e. an impact is about to start).
+   */
+  contactActivity(q: ArrayLike<number>, qd: ArrayLike<number>, ahead: ArrayLike<number>): number {
+    let m = 0;
+    for (const f of this.forces) {
+      if (!(f instanceof ContactF || f instanceof GroundContactF)) continue;
+      if (f.hits(q).length) m = Math.max(m, f.maxRate(q, qd));
+      else if (f.hits(ahead).length) return Infinity;
+    }
+    return m;
+  }
+
+  /** Step size the contact friction law is regularized for (the integrator's current step). */
+  setContactStep(h: number): void {
+    for (const f of this.forces) if (f instanceof ContactF || f instanceof GroundContactF) f.hStep = h;
   }
 
   /** Power of all non-conservative applied forces (damping, friction, impacts). */
