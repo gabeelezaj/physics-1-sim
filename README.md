@@ -2,6 +2,8 @@
 
 A 2D sandbox for building classic planar dynamics problems (carts on frictionless floors, pivoted bars, pendulums, linear and torsional springs, ropes over massive pulleys) and simulating them with all the math shown.
 
+**Live demo:** https://gabeelezaj.github.io/physics-1-sim/
+
 ```bash
 npm install
 npm run dev      # http://localhost:5173
